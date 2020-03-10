@@ -53,6 +53,7 @@ app.post('/api/getSecondaryServices', (req, res) => {
     })();
 });
 
+<<<<<<< HEAD
 app.post('/api/getCalendarInfo', (req, res) => {
     (async function() {
         async function findFirst(currentDate) {
@@ -102,6 +103,64 @@ app.post('/api/getCalendarInfo', (req, res) => {
             });
         }
     })();
+=======
+function findBookedEvents(service, startDate) {
+    (async function() {
+        var query = 'select * from calendar_event where secondary_id = ' + service.id + ' and extract(epoch from date) between ' + (startDate/1000) + ' and ' + ((startDate/1000) + (60*60*24*7));
+        var result = await DB_client.query(query);
+        return (result) ? result.rows : null;
+    })();
+}
+
+function findInUseEvents(service, startDate) {
+    (async function() {
+        var query = 'select * from calendar_event where resource_id = ' + service.resource_id + ' and extract(epoch from date) between ' + (startDate/1000) + ' and ' + ((startDate/1000) + (60*60*24*7));
+        var result = await DB_client.query(query);
+        return (result) ? result.rows : null;
+    })();
+}
+
+function getSecondaryServiceInfo(service_id) {
+    (async function() {
+        var query = 'select * from secondary_service where id = ' + service_id;
+        console.log('QUERY: ' + query);
+        var result = await DB_client.query(query);
+        return result.rows[0];
+    })();
+}
+
+function runQuery(query, fn) {
+    console.log('QUERY: ' + query);
+    DB_client.query(query, (err, result) => {
+        if (err) {
+            console.log(err);
+            fn(null);
+        } else {
+            fn(result);
+        }
+    });
+}
+
+app.post('/api/getCalendarInfo', (req, res) => {
+    var query = 'select * from secondary_service where id = ' + req.body.service_id;
+    runQuery(query, (result) => {
+        var service = result.rows[0];    
+        if (service.type == 'class') {
+
+        } else {
+            query = 'select * from calendar_event where secondary_id = ' + service.id + ' and extract(epoch from date) between ' + (req.body.start/1000) + ' and ' + ((req.body.start/1000) + (60*60*24*7));
+            runQuery(query, (eventResult) => {
+                query = 'select * from calendar_event where resource_id = ' + service.resource_id + ' and extract(epoch from date) between ' + (req.body.start/1000) + ' and ' + ((req.body.start/1000) + (60*60*24*7));
+                runQuery(query, (inUseResult) => {
+                    res.send({
+                        events: eventResult.rows,
+                        inUse: inUseResult.rows
+                    });
+                });
+            });
+        }
+    });
+>>>>>>> 61a7d5e4c6cea2841da2db0725b6995c4e2a7216
 });
 
 // End - API
