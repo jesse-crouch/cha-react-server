@@ -62,7 +62,7 @@ app.post('/api/getCalendarInfo', (req, res) => {
             currentDate.setHours(23,59,0,0);
             const end = currentDate.getTime();
 
-            var query = 'select *, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.surname) as instructor_name from calendar_event, instructor i where secondary_id = ' + req.body.id + ' and i.id = instructor and (extract(epoch from date)*1000) between ' + start + ' and ' + end;
+            var query = 'select c.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.surname) as instructor_name from calendar_event c, instructor i where secondary_id = ' + req.body.id + ' and i.id = instructor and (extract(epoch from date)*1000) between ' + start + ' and ' + end;
             console.log('QUERY: ' + query);
             const result = await DB_client.query(query);
             currentDate.setHours(currentDate.getHours() + 1);
@@ -73,7 +73,7 @@ app.post('/api/getCalendarInfo', (req, res) => {
         }
 
         // Need to compile service info
-        var query = 'select * from secondary_service where id = ' + req.body.id;
+        var query = 'select s.*, concat(i.first_name, \' \', i.surname) as instructor_name, p.name as primary_name from secondary_service s, instructor i, primary_service p where s.id = ' + req.body.id + ' and i.id = s.default_instructor and p.id = s.primary_service_id';
         console.log('QUERY: ' + query);
         var serviceResult = await DB_client.query(query);
 
@@ -91,7 +91,7 @@ app.post('/api/getCalendarInfo', (req, res) => {
             });
         } else {
             // Check for events scheduled during the week
-            query = 'select *, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.surname) as instructor_name from calendar_event, instructor i where secondary_id = ' + req.body.id + ' and i.id = instructor and (extract(epoch from date)*1000) between ' + startDate.getTime() + ' and ' + (startDate.getTime() + (1000*60*60*24*7));
+            query = 'select c.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.surname) as instructor_name from calendar_event c, instructor i where secondary_id = ' + req.body.id + ' and i.id = instructor and (extract(epoch from date)*1000) between ' + startDate.getTime() + ' and ' + (startDate.getTime() + (1000*60*60*24*7));
             console.log('QUERY: ' + query);
             var eventResult = await DB_client.query(query);
 
