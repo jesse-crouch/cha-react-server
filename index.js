@@ -16,7 +16,7 @@ const secret_key = '65F1FAD3B9E2C35E1C297179A389AFA32A4B68907209ECC5E6F94479489F
 const DB_client = new Client({
     host: '99.242.212.59',
     port: 5432,
-    database: 'CosgroveHockeyAcademy',
+    database: 'CHA',
     user: 'postgres',
     password: 'mplkO0'
 });
@@ -33,30 +33,25 @@ app.get('/api/serverURL', (req, res) => {
     res.send({ server: 'http://localhost:3500' });
 });
 
-app.get('/api/getServices', (req, res) => {
+app.post('/api/getServices', (req, res) => {
     (async function() {
-        var query = 'select * from primary_service order by id asc;';
-        console.log('QUERY: ' + query);
-        var result = await DB_client.query(query);
-
-        if (result) {
-            res.send({ services: result.rows });
+        if (req.body.id != undefined) {
+            // Get a list of all child services
+            var query = 'select * from service where parent_service_id = ' + req.body.id;
+            console.log('QUERY: ' + query);
+            var result = await DB_client.query(query);
+            if (result.rowCount > 0) {
+                res.send({ services: result.rows });
+            } else {
+                // This is the last service in the chain
+                res.send({ services: [] });
+            }
         } else {
-            res.sendStatus(404);
-        }
-    })();
-});
-
-app.post('/api/getSecondaryServices', (req, res) => {
-    (async function() {
-        var query = 'select * from secondary_service where primary_service_id = ' + req.body.service_id + ' order by id asc;';
-        console.log('QUERY: ' + query);
-        var result = await DB_client.query(query);
-
-        if (result) {
+            // Get a list of all parent services
+            var query = 'select * from service where parent_service_id is null';
+            console.log('QUERY: ' + query);
+            var result = await DB_client.query(query);
             res.send({ services: result.rows });
-        } else {
-            res.sendStatus(404);
         }
     })();
 });
@@ -70,46 +65,114 @@ app.post('/api/getCalendarInfo', (req, res) => {
             currentDate.setHours(23,59,0,0);
             const end = currentDate.getTime();
 
-            var query = 'select c.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.surname) as instructor_name from calendar_event c, instructor i where secondary_id = ' + req.body.id + ' and i.id = instructor and (extract(epoch from date)*1000) between ' + start + ' and ' + end;
+            var query = 'select e.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.last_name) as instructor_name from event e, instructor i, service s where service_id = ' + req.body.id + ' and s.id = ' + req.body.id + ' and i.id = s.instructor and (extract(epoch from date)*1000) between ' + start + ' and ' + end;
             console.log('QUERY: ' + query);
             const result = await DB_client.query(query);
             currentDate.setHours(currentDate.getHours() + 1);
-            return (result.rowCount > 0) ? {
-                start: start,
-                events: result.rows
-            } : findFirst(currentDate);
+            var actualDate = new Date();
+            actualDate.setDate(actualDate.getDate() + 90);
+            if (currentDate.getTime() > actualDate.getTime()) {
+                // No events for 3 months
+                return null;
+            } else {
+                return (result.rowCount > 0) ? {
+                    start: start,
+                    events: result.rows
+                } : findFirst(currentDate);
+            }
         }
 
         // Need to compile service info
-        var query = 'select s.*, concat(i.first_name, \' \', i.surname) as instructor_name, p.name as primary_name from secondary_service s, instructor i, primary_service p where s.id = ' + req.body.id + ' and i.id = s.default_instructor and p.id = s.primary_service_id';
+        var query = 'select s.*, concat(i.first_name, \' \', i.last_name) as instructor_name from service s, instructor i where s.id = ' + req.body.id + ' and i.id = s.instructor';
         console.log('QUERY: ' + query);
         var serviceResult = await DB_client.query(query);
+        var baseService = serviceResult.rows[0];
+
+        var services = [];
+        while (serviceResult.rows[0].parent_service_id != null) {
+            query = 'select s.name from service s where id = ' + serviceResult.rows[0].parent_service_id;
+            console.log('QUERY: ' + query);
+            serviceResult = await DB_client.query(query);
+            services.push(serviceResult.rows[0]);
+        }
+        var fullServiceName = '';
+        for (var i=services.length-1; i>-1; i--) {
+            fullServiceName += services[i].name + ' - ';
+        }
+        fullServiceName += baseService.name;
+        baseService.fullServiceName = fullServiceName;
 
         // If this is a class, determine the first instance
-        var startDate = new Date(Number.parseInt(req.body.date));
+        var startDate = new Date(req.body.date*1000);
+        console.log(req.body.date + ',' + startDate);
         startDate.setDate(startDate.getDate() - startDate.getDay());
         startDate.setHours(0,0,0,0);
 
-        if (serviceResult.rows[0].type == 'class') {
+        if (baseService.type == 'class') {
             var first = await findFirst(startDate);
-            res.send({
-                service_info: serviceResult.rows[0],
-                events: first.events,
-                startDate: first.start
-            });
+            if (first != null) {
+                res.send({
+                    service_info: baseService,
+                    events: first.events,
+                    startDate: first.start
+                });
+            } else {
+                res.send({ error: 'There are no scheduled events for the next 3 months.' });
+            }
         } else {
             // Check for events scheduled during the week
-            query = 'select c.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.surname) as instructor_name from calendar_event c, instructor i where secondary_id = ' + req.body.id + ' and i.id = instructor and (extract(epoch from date)*1000) between ' + startDate.getTime() + ' and ' + (startDate.getTime() + (1000*60*60*24*7));
+            query = 'select e.*, extract(epoch from date) as epoch_date from event e where service_id = ' + baseService.id + ' and (extract(epoch from date)*1000) between ' + startDate.getTime() + ' and ' + (startDate.getTime() + (1000*60*60*24*7));
             console.log('QUERY: ' + query);
             var eventResult = await DB_client.query(query);
 
+            // Add the service info to each event
+            for (var i in eventResult.rows) {
+                eventResult.rows[i].service = baseService;
+            }
+
             res.send({
-                service_info: serviceResult.rows[0],
+                service_info: baseService,
                 events: eventResult.rows,
                 startDate: startDate.getTime()
             });
         }
     })();
+});
+
+app.post('/api/getEventManagerEvents', (req, res) => {
+    (async function() {
+        var query = 'select e.*, extract(epoch from date) as epoch_date, s.type from event e, service s where s.id = e.service_id order by date asc';
+        console.log('QUERY: ' + query);
+        var result = DB_client.query(query);
+        res.send({
+            events: result.rows
+        });
+    })();
+});
+
+app.post('/api/getEvent', (req, res) => {
+    (async function() {
+        var query = 'select e.*, s.duration, extract(epoch from date) as epoch_date from event e, service s where e.id = ' + req.body.id + ' and s.id = e.service_id';
+        console.log('QUERY: ' + query);
+        var result = await DB_client.query(query);
+
+        if (result.rowCount > 0) {
+            res.send({
+                event: {
+                    id: result.rows[0].id,
+                    event_name: result.rows[0].name,
+                    epoch_date: result.rows[0].epoch_date,
+                    duration: result.rows[0].duration
+                }
+            });
+        } else {
+            res.send({ error: 'No event found in DB' });
+        }
+    })();
+});
+
+app.post('/api/addEvent', (req, res) => {
+    // TODO
 });
 
 app.post('/api/getPayload', (req, res) => {
@@ -213,14 +276,27 @@ app.post('/api/checkMemberDiscount', (req, res) => {
 });
 
 app.post('/api/sale', (req, res) => {
-    /*first_name: first_name,
+    // Loop through items, creating events for non classes
+    /*var allIDs = [];
+    for (var i in req.body.items) {
+        if (req.body.items[i].type == 'class') {
+            
+        }
+    }
+
+    first_name: first_name,
                     last_name: last_name,
                     email: email,
                     phone: phone,
                     child_first_name: child_first_name,
                     child_last_name: child_last_name,
                     items: itemIDs,
-                    amount_due: 0*/
+                    amount_due: 0
+
+     sale in db
+     id, user_id, first_name, last_name, email, phone, c_first_name, c_last_name, service_id, date, amount_due, calendar_event_id, free, services
+    'insert into sale (user_id, first_name, last_name, email, phone, c_first_name, c_last_name, service_id, date, amount_due, calendar_event_id, free, services)' +
+    'values (req.body.user_id, req.body.first_name, req.body.last_name, req.body.email, req.body.phone, req.body.c_first_name, items[i].id, '*/
 })
 
 function sendEmail(email, first_name, last_name, items) {
