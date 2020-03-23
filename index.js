@@ -65,7 +65,7 @@ app.post('/api/getCalendarInfo', (req, res) => {
             currentDate.setHours(23,59,0,0);
             const end = currentDate.getTime();
 
-            var query = 'select e.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.last_name) as instructor_name from event e, instructor i, service s where service_id = ' + req.body.id + ' and s.id = ' + req.body.id + ' and i.id = s.instructor and (extract(epoch from date)*1000) between ' + start + ' and ' + end;
+            var query = 'select e.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.last_name) as instructor_name, s.duration, s.price, s.type from event e, instructor i, service s where service_id = ' + req.body.id + ' and s.id = ' + req.body.id + ' and i.id = s.instructor and (extract(epoch from date)*1000) between ' + start + ' and ' + end;
             console.log('QUERY: ' + query);
             const result = await DB_client.query(query);
             currentDate.setHours(currentDate.getHours() + 1);
@@ -88,19 +88,10 @@ app.post('/api/getCalendarInfo', (req, res) => {
         var serviceResult = await DB_client.query(query);
         var baseService = serviceResult.rows[0];
 
-        var services = [];
-        while (serviceResult.rows[0].parent_service_id != null) {
-            query = 'select s.name from service s where id = ' + serviceResult.rows[0].parent_service_id;
-            console.log('QUERY: ' + query);
-            serviceResult = await DB_client.query(query);
-            services.push(serviceResult.rows[0]);
-        }
-        var fullServiceName = '';
-        for (var i=services.length-1; i>-1; i--) {
-            fullServiceName += services[i].name + ' - ';
-        }
-        fullServiceName += baseService.name;
-        baseService.fullServiceName = fullServiceName;
+        query = 'select * from service where id = ' + baseService.parent_service_id;
+        console.log('QUERY: ' + query);
+        var subResult = await DB_client.query(query);
+        baseService.fullServiceName = subResult.rows[0].name + ' - ' + baseService.name;
 
         // If this is a class, determine the first instance
         var startDate = new Date(req.body.date*1000);
@@ -125,6 +116,11 @@ app.post('/api/getCalendarInfo', (req, res) => {
             console.log('QUERY: ' + query);
             var eventResult = await DB_client.query(query);
 
+            // Check for conflicting resource usage
+            query = 'select e.*, extract(epoch from date) as epoch_date, s.duration from event e, service s where s.id = e.service_id and s.resource_id = ' + baseService.resource_id + ' and (extract(epoch from date)*1000) between ' + startDate.getTime() + ' and ' + (startDate.getTime() + (1000*60*60*24*7));
+            console.log('QUERY: ' + query);
+            var resourceResult = await DB_client.query(query);
+
             // Add the service info to each event
             for (var i in eventResult.rows) {
                 eventResult.rows[i].service = baseService;
@@ -133,7 +129,8 @@ app.post('/api/getCalendarInfo', (req, res) => {
             res.send({
                 service_info: baseService,
                 events: eventResult.rows,
-                startDate: startDate.getTime()
+                startDate: startDate.getTime(),
+                resourceConflicts: resourceResult.rows
             });
         }
     })();
@@ -141,9 +138,9 @@ app.post('/api/getCalendarInfo', (req, res) => {
 
 app.post('/api/getEventManagerEvents', (req, res) => {
     (async function() {
-        var query = 'select e.*, extract(epoch from date) as epoch_date, s.type from event e, service s where s.id = e.service_id order by date asc';
+        var query = 'select e.*, extract(epoch from date) as epoch_date, s.type, s.duration, s.price, concat(i.first_name, \' \', i.last_name) as instructor_name, s.type from event e, service s, instructor i where s.id = e.service_id and s.type = \'class\' and i.id = s.instructor and extract(epoch from date)*1000 between ' + req.body.date + ' and ' + (parseInt(req.body.date) + (1000*60*60*24*7)) + ' order by date asc';
         console.log('QUERY: ' + query);
-        var result = DB_client.query(query);
+        var result = await DB_client.query(query);
         res.send({
             events: result.rows
         });
@@ -152,7 +149,7 @@ app.post('/api/getEventManagerEvents', (req, res) => {
 
 app.post('/api/getEvent', (req, res) => {
     (async function() {
-        var query = 'select e.*, s.duration, extract(epoch from date) as epoch_date from event e, service s where e.id = ' + req.body.id + ' and s.id = e.service_id';
+        var query = 'select e.*, s.duration, s.type, extract(epoch from date) as epoch_date from event e, service s where e.id = ' + req.body.id + ' and s.id = e.service_id';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
 
@@ -172,7 +169,82 @@ app.post('/api/getEvent', (req, res) => {
 });
 
 app.post('/api/addEvent', (req, res) => {
-    // TODO
+    (async function() {
+        // Check for existing events during the time period
+        var query = 'select * from event where service_id = ' + req.body.service + ' and extract(epoch from date) between ' + req.body.date + ' and ' + (parseInt(req.body.date) + (60*req.body.duration));
+        console.log('QUERY: ' + query);
+        var result = await DB_client.query(query);
+        if (result.rowCount > 0) {
+            // Event exists in this time slot
+            res.send({ error: 'An event with the same service exists in the timeslot given.' });
+        } else {
+            if (req.body.days.length > 0) {
+                // This is a recurring event
+                // Add a recurring event to the DB and get the ID first
+                query = 'insert into recurrence(service) values (\'' + req.body.service + '\')';
+                console.log('QUERY: ' + query);
+                result = await DB_client.query(query);
+
+                // Get the recurrence ID
+                query = 'select id from recurrence where id=(select max(id) from recurrence)';
+                console.log('QUERY: ' + query);
+                result = await DB_client.query(query);
+                var recurrence_id = result.rows[0].id;
+
+                var days = JSON.parse(req.body.days);
+                for (var i in days) {
+                    console.log(req.body.date*1000);
+                    var addDate = new Date(req.body.date*1000);
+                    console.log(addDate.toUTCString());
+                    addDate.setDate(addDate.getDate() - addDate.getDay());
+                    addDate.setDate(addDate.getDate() + days[i]);
+                    console.log(addDate);
+                    for (var j=0; j<2; j++) {
+                        query = 'insert into event(name, service_id, date, recurrence_id) values ' +
+                                '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (addDate.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ')';
+                        console.log('QUERY: ' + query);
+                        result = await DB_client.query(query);
+                        addDate.setDate(addDate.getDate() + 7);
+                    }
+                }
+                res.send({ error: null });
+            } else {
+                // This is a single event, add it
+                query = 'insert into event(name, service_id, date, recurrence_id) values ' +
+                        '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + req.body.date + ') at time zone \'UTC\', null)';
+                console.log('QUERY: ' + query);
+                result = await DB_client.query(query);
+                res.send({ error: null });
+            }
+        }
+    })();
+});
+
+app.get('/api/getSelectData', (req, res) => {
+    (async function() {
+        // Get services
+        var query = 'select * from service where type = \'class\' and parent_service_id is not null order by id asc';
+        console.log('QUERY: ' + query);
+        var result = await DB_client.query(query);
+        var services = result.rows;
+
+        for (var i in services) {
+            query = 'select * from service where id = ' + services[i].parent_service_id;
+            console.log('QUERY: ' + query);
+            var subResult = await DB_client.query(query);
+            services[i].fullServiceName = subResult.rows[0].name + ' - ' + services[i].name;
+        }
+
+        // Get instructors
+        query = 'select *, concat(first_name, \' \', last_name) as fullName from instructor';
+        console.log('QUERY: ' + query);
+        var instructorResult = await DB_client.query(query);
+        
+        res.send({
+            services: services,
+            instructors: instructorResult.rows
+        });
+    })();
 });
 
 app.post('/api/getPayload', (req, res) => {
@@ -218,7 +290,9 @@ app.post('/api/login', (req, res) => {
 
 function generateToken(user) {
     return jwt.sign({
+        id: user.id,
         email: user.email,
+        phone: user.phone,
         first_name: user.first_name,
         last_name: user.last_name,
         membership: user.membership
@@ -276,27 +350,86 @@ app.post('/api/checkMemberDiscount', (req, res) => {
 });
 
 app.post('/api/sale', (req, res) => {
-    // Loop through items, creating events for non classes
-    /*var allIDs = [];
-    for (var i in req.body.items) {
-        if (req.body.items[i].type == 'class') {
-            
+    (async function() {
+        var items = JSON.parse(req.body.cart).items;
+        var query = '', result = null;
+        var ids = [];
+
+        console.log(req.body.user_id);
+
+        // Loop through items, creating events for non classes
+        for (var i in items) {
+            if (items[i].type == 'open') {
+                query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots) values ' +
+                        '(\'' + items[i].name + '\', ' + items[i].service_id + ',to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\', null, ' + (items[i].total_spots - 1) + ', ' + items[i].total_spots + ')';
+                console.log('QUERY: ' + query);
+                result = await DB_client.query(query);
+
+                // Get the recently added event id
+                query = 'select id from event where id=(select max(id) from event)';
+                console.log('QUERY: ' + query);
+                result = await DB_client.query(query);
+                items[i].id = result.rows[0].id;
+                ids.push(result.rows[0].id);
+            } else {
+                ids.push(items[i].id);
+            }
         }
-    }
 
-    first_name: first_name,
-                    last_name: last_name,
-                    email: email,
-                    phone: phone,
-                    child_first_name: child_first_name,
-                    child_last_name: child_last_name,
-                    items: itemIDs,
-                    amount_due: 0
+        // Add each item as a new sale, and store the sale id
+        var sales = [];
+        var freeUsed = false;
+        for (var i in items) {
+            query = 'insert into sale(user_id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free)' +
+                    ' values(' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
+                    req.body.phone + '\',\'' + req.body.child_first_name + '\',\'' + req.body.child_last_name + '\',' + items[i].service_id + ',' +
+                    'to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\',' + req.body.amount_due + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ')';
+            console.log('QUERY: ' + query);
+            result = await DB_client.query(query);
 
-     sale in db
-     id, user_id, first_name, last_name, email, phone, c_first_name, c_last_name, service_id, date, amount_due, calendar_event_id, free, services
-    'insert into sale (user_id, first_name, last_name, email, phone, c_first_name, c_last_name, service_id, date, amount_due, calendar_event_id, free, services)' +
-    'values (req.body.user_id, req.body.first_name, req.body.last_name, req.body.email, req.body.phone, req.body.c_first_name, items[i].id, '*/
+            query = 'select id from sale where id = (select max(id) from sale)';
+            console.log('QUERY: ' + query);
+            result = await DB_client.query(query);
+            sales.push(result.rows[0].id);
+            freeUsed = req.body.free;
+
+            // If the item is a class, decrement the open spots
+            if (items[i].type == 'class') {
+                query = 'update event set open_spots = (open_spots - 1) where id = ' + items[i].id;
+                console.log('QUERY: ' + query);
+                result = await DB_client.query(query);
+            }
+        }
+
+        // Generate a new basket
+        query = 'insert into basket(sales, items) values(\'{' + sales + '}\',\'{' + ids + '}\')';
+        console.log('QUERY: ' + query);
+        result = await DB_client.query(query);
+
+        res.send({ error: 'Testing' });
+
+        // Loop through items, creating events for non classes
+        /*var allIDs = [];
+        for (var i in req.body.items) {
+            if (req.body.items[i].type == 'class') {
+                
+            }
+        }
+
+        first_name: first_name,
+                        last_name: last_name,
+                        email: email,
+                        phone: phone,
+                        child_first_name: child_first_name,
+                        child_last_name: child_last_name,
+                        items: itemIDs,
+                        amount_due: 0
+
+        sale in db
+        id, user_id, first_name, last_name, email, phone, c_first_name, c_last_name, service_id, date, amount_due, calendar_event_id, free, services
+        'insert into sale (user_id, first_name, last_name, email, phone, c_first_name, c_last_name, service_id, date, amount_due, calendar_event_id, free, services)' +
+        'values (req.body.user_id, req.body.first_name, req.body.last_name, req.body.email, req.body.phone, req.body.c_first_name, items[i].id, '*/ 
+    })();
 })
 
 function sendEmail(email, first_name, last_name, items) {
