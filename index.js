@@ -29,6 +29,33 @@ app.use('*', (req, res, next) => {
 });
 
 // Start - API
+function time(date) {
+    var hours = date.getUTCHours();
+    var mins = date.getUTCMinutes();
+    var endStamp = (hours >= 12) ? ' PM' : ' AM';
+
+    var timeString = (hours > 12) ? (hours -= 12) : hours;
+    timeString += ':' + ((mins === 0) ? '00' : mins) + endStamp;
+
+    return timeString;
+}
+
+function dateString(date) {
+    // DD/MM/YYYY
+    var day = date.getUTCDate();
+    var month = date.getUTCMonth();
+    var year = date.getUTCFullYear();
+
+    if (day < 10) { day = '0' + day; }
+    if (month < 10) { month = '0' + month; }
+    
+    return day + '/' + month + '/' + year;
+}
+
+function toUTCTime(epoch) {
+    return epoch - (1000*60*new Date().getTimezoneOffset());
+}
+
 app.get('/api/serverURL', (req, res) => {
     res.send({ server: 'http://localhost:3500' });
 });
@@ -37,7 +64,7 @@ app.post('/api/getServices', (req, res) => {
     (async function() {
         if (req.body.id != undefined) {
             // Get a list of all child services
-            var query = 'select * from service where parent_service_id = ' + req.body.id;
+            var query = 'select * from service where ' + req.body.id + ' =  any(id_chain) order by id asc';
             console.log('QUERY: ' + query);
             var result = await DB_client.query(query);
             if (result.rowCount > 0) {
@@ -48,7 +75,7 @@ app.post('/api/getServices', (req, res) => {
             }
         } else {
             // Get a list of all parent services
-            var query = 'select * from service where parent_service_id is null';
+            var query = 'select * from service where id_chain is null order by id asc';
             console.log('QUERY: ' + query);
             var result = await DB_client.query(query);
             res.send({ services: result.rows });
@@ -87,15 +114,11 @@ app.post('/api/getCalendarInfo', (req, res) => {
         console.log('QUERY: ' + query);
         var serviceResult = await DB_client.query(query);
         var baseService = serviceResult.rows[0];
-
-        query = 'select * from service where id = ' + baseService.parent_service_id;
-        console.log('QUERY: ' + query);
-        var subResult = await DB_client.query(query);
-        baseService.fullServiceName = subResult.rows[0].name + ' - ' + baseService.name;
+        baseService.fullServiceName = await getFullServiceName(baseService);
+        console.log(baseService.fullServiceName);
 
         // If this is a class, determine the first instance
         var startDate = new Date(req.body.date*1000);
-        console.log(req.body.date + ',' + startDate);
         startDate.setDate(startDate.getDate() - startDate.getDay());
         startDate.setHours(0,0,0,0);
 
@@ -141,6 +164,17 @@ app.post('/api/getEventManagerEvents', (req, res) => {
         var query = 'select e.*, extract(epoch from date) as epoch_date, s.type, s.duration, s.price, concat(i.first_name, \' \', i.last_name) as instructor_name, s.type from event e, service s, instructor i where s.id = e.service_id and s.type = \'class\' and i.id = s.instructor and extract(epoch from date)*1000 between ' + req.body.date + ' and ' + (parseInt(req.body.date) + (1000*60*60*24*7)) + ' order by date asc';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
+
+        // Find the service ancestor for colour coding
+        for (var i in result.rows) {
+            query = 'select name, id_chain from service where id = ' + result.rows[i].service_id;
+            var serviceResult = await DB_client.query(query);
+
+            query = 'select colour from service where id = ' + serviceResult.rows[0].id_chain[0];
+            serviceResult = await DB_client.query(query);
+            result.rows[i].colour = serviceResult.rows[0].colour;
+        }
+
         res.send({
             events: result.rows
         });
@@ -194,7 +228,7 @@ app.post('/api/addEvent', (req, res) => {
                 var days = JSON.parse(req.body.days);
                 for (var i in days) {
                     console.log(req.body.date*1000);
-                    var addDate = new Date(req.body.date*1000);
+                    var addDate = new Date(toUTCTime(req.body.date*1000));
                     console.log(addDate.toUTCString());
                     addDate.setDate(addDate.getDate() - addDate.getDay());
                     addDate.setDate(addDate.getDate() + days[i]);
@@ -220,20 +254,66 @@ app.post('/api/addEvent', (req, res) => {
     })();
 });
 
+async function getFullServiceName(service) {
+    var name = '';
+    if (service.id_chain.length > 0) {
+        for (var i in service.id_chain) {
+            var query = 'select name from service where id = ' + service.id_chain[i];
+            console.log('QUERY: ' + query);
+            var result = await DB_client.query(query);
+
+            name += result.rows[0].name + ' - ';
+        }
+    }
+    return name + service.name;
+}
+
+app.post('/api/deleteEvents', (req, res) => {
+    (async function() {
+        var startEvent = JSON.parse(req.body.startEvent);
+        console.log(req.body.singleEvent);
+        if (req.body.singleEvent == 'true') {
+            // Check if there is a booking on the given event
+            if (startEvent.open_spots < startEvent.total_spots) {
+                // Someone has this event booked
+                res.send({ error: 'This event contains a booking.' });
+            } else {
+                // Delete the single event given
+                var query = 'delete * from event where id = ' + startEvent.id;
+                console.log('QUERY: ' + query);
+                var result = await DB_client.query(query);
+                res.send({ error: null });
+            }
+        } else {
+            // Check if there is a booking on any of the events in the recurrence
+            var query = 'select id from event where recurrence_id = ' + startEvent.recurrence_id + ' and open_spots < total_spots';
+            console.log('QUERY: ' + query);
+            var result = await DB_client.query(query);
+            if (result.rowCount > 0) {
+                res.send({ error: ((result.rowCount > 1) ? result.rowCount + ' events' : 'One event') + ' in this recurrence contain' + ((result.rowCount > 1) ? '' : 's') + ' a booking.' });
+            } else {
+                // Delete all events belonging to the same recurrence as the event given
+                var query = 'delete * from event where recurrence_id = ' + startEvent.recurrence_id;
+                console.log('QUERY: ' + query);
+                var result = await DB_client.query(query);
+
+                // Delete the recurrence entry
+                query = 'delete * from recurrence where id = ' + startEvent.recurrence_id;
+                console.log('QUERY: ' + query);
+                result = await DB_client.query(query);
+                res.send({ error: null });
+            }
+        }
+    })();
+});
+
 app.get('/api/getSelectData', (req, res) => {
     (async function() {
         // Get services
-        var query = 'select * from service where type = \'class\' and parent_service_id is not null order by id asc';
+        var query = 'select * from service where type = \'class\' and id_chain is not null order by id asc';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
-        var services = result.rows;
-
-        for (var i in services) {
-            query = 'select * from service where id = ' + services[i].parent_service_id;
-            console.log('QUERY: ' + query);
-            var subResult = await DB_client.query(query);
-            services[i].fullServiceName = subResult.rows[0].name + ' - ' + services[i].name;
-        }
+        for (var i in result.rows) result.rows[i].fullServiceName = await getFullServiceName(result.rows[i]);
 
         // Get instructors
         query = 'select *, concat(first_name, \' \', last_name) as fullName from instructor';
@@ -299,19 +379,10 @@ function generateToken(user) {
     }, secret_key);
 }
 
-app.post('/api/testEmail', (req, res) => {
-    var result = sendEmail(req.body.email, req.body.first_name, req.body.last_name, req.body.items);
-    if (result) {
-        res.send({ success: result });
-    } else {
-        res.send({ error: result });
-    }
-});
-
 app.post('/api/getClientSecret', (req, res) => {
     (async () => {
         const paymentIntent = await stripe.paymentIntents.create({
-            amount: req.body.amount*100,
+            amount: (req.body.amount == 0 ? 1 : req.body.amount)*100,
             currency: 'cad',
             // Verify your integration in this guide by including this parameter
             metadata: {integration_check: 'accept_a_payment'},
@@ -406,29 +477,10 @@ app.post('/api/sale', (req, res) => {
         console.log('QUERY: ' + query);
         result = await DB_client.query(query);
 
-        res.send({ error: 'Testing' });
+        // Send the receipt email to the user and to the owner
+        sendEmail(req.body.email, req.body.first_name, req.body.last_name, items);
 
-        // Loop through items, creating events for non classes
-        /*var allIDs = [];
-        for (var i in req.body.items) {
-            if (req.body.items[i].type == 'class') {
-                
-            }
-        }
-
-        first_name: first_name,
-                        last_name: last_name,
-                        email: email,
-                        phone: phone,
-                        child_first_name: child_first_name,
-                        child_last_name: child_last_name,
-                        items: itemIDs,
-                        amount_due: 0
-
-        sale in db
-        id, user_id, first_name, last_name, email, phone, c_first_name, c_last_name, service_id, date, amount_due, calendar_event_id, free, services
-        'insert into sale (user_id, first_name, last_name, email, phone, c_first_name, c_last_name, service_id, date, amount_due, calendar_event_id, free, services)' +
-        'values (req.body.user_id, req.body.first_name, req.body.last_name, req.body.email, req.body.phone, req.body.c_first_name, items[i].id, '*/ 
+        res.send({ error: null });
     })();
 })
 
@@ -436,30 +488,35 @@ function sendEmail(email, first_name, last_name, items) {
     var msg = first_name[0].toUpperCase() + first_name.substr(1) + ', You have ordered the following items at Cosgrove Hockey Academy.';
     var ownerMsg = first_name[0].toUpperCase() + first_name.substr(1) + ' ' + last_name[0].toUpperCase() + last_name.substr(1) + ' has ordered the following items.';
 
-    var html = '<html><head><link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" ' +
-                'rel="stylesheet" integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" ' +
-                'crossorigin="anonymous"><script src="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js" ' +
-                'integrity="sha384-wfSDF2E50Y2D1uUdj0O3uMBJnjuUD4Ih7YwaYd1iqfktj0Uod8GCExl3Og8ifwB6" crossorigin="anonymous">' +
-                '</script></head><div class="text-center"><img src="https://i.ibb.co/7NR413V/logo-lg.png" width="600"/><h4>' +
-                'Receipt</h4><p>' + msg + '</p></div><table class="table table-striped" style="margin: 0 auto;"><thead class="thead thead-dark"><tr><th>Item</th><th>Time' +
-                '</th><th>Price</th></tr></thead><tbody></html>';
-    var ownerHtml =  '<html><head><link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" ' +
-                'rel="stylesheet" integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" ' +
-                'crossorigin="anonymous"><script src="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js" ' +
-                'integrity="sha384-wfSDF2E50Y2D1uUdj0O3uMBJnjuUD4Ih7YwaYd1iqfktj0Uod8GCExl3Og8ifwB6" crossorigin="anonymous">' +
-                '</script></head><div class="text-center"><img src="https://i.ibb.co/7NR413V/logo-lg.png" width="600"/><h4>' +
-                'Receipt</h4><p>' + ownerMsg + '</p></div><table class="table table-striped" style="margin: 0 auto;"><thead class="thead thead-dark"><tr><th>Item</th><th>Time' +
-                '</th><th>Price</th></tr></thead><tbody></html>';
-    items = JSON.parse(items);
+
+    var html = '<html><head><style>body {color: black; width: 30%; margin: 0 auto; font-family: \'Arial\';' +
+            'text-align: center;}table {width: 100%;border-spacing: 0;}thead th {padding: 1%;}table thead {color: white;background: #343a40;}' +
+            'tbody tr:nth-of-type(odd) {background: rgba(0,0,0,.05);}tbody td{padding: 2%;}#small-container {text-align: left;width: 100%;' +
+            'margin: 0 auto;margin-top: 1%;font-size: 90%;}h2 {margin-bottom: 0;}p {margin-top: 0;}</style></head><body>' +
+            '<img src="https://ci6.googleusercontent.com/proxy/tlmwj8qAsiGEAZ5hkcdLxI0Y0hjtePXl6QkMfBcwNZuCaYEbd7FrVomF5EyLu6vdmirpBUzBIQ=s0-d-e1-ft#https://i.ibb.co/7NR413V/logo-lg.png"' +
+            'width="600" class="CToWUd a6T" tabindex="0"><h2>Receipt</h2><p>' + msg + '</p><table style="margin:0 auto"><thead><tr><th>Item</th><th>Date</th><th>Time</th><th>Price</th></tr></thead><tbody>';
+    var ownerHtml = '<html><head><style>body {width: 30%; margin: 0 auto; font-family: \'Arial\';' +
+            'text-align: center;}table {width: 100%;border-spacing: 0;}thead th {padding: 1%;}table thead {color: white;background: #343a40;}' +
+            'tbody tr:nth-of-type(odd) {background: rgba(0,0,0,.05);}tbody td{padding: 2%;}#small-container {text-align: left;width: 100%;' +
+            'margin: 0 auto;margin-top: 1%;font-size: 90%;}h2 {margin-bottom: 0;}p {margin-top: 0;}</style></head><body>' +
+            '<img src="https://ci6.googleusercontent.com/proxy/tlmwj8qAsiGEAZ5hkcdLxI0Y0hjtePXl6QkMfBcwNZuCaYEbd7FrVomF5EyLu6vdmirpBUzBIQ=s0-d-e1-ft#https://i.ibb.co/7NR413V/logo-lg.png"' +
+            'width="600" class="CToWUd a6T" tabindex="0"><h2>Sale</h2><p>' + ownerMsg + '</p><table style="margin:0 auto"><thead><tr><th>Item</th><th>Date</th><th>Time</th><th>Price</th></tr></thead><tbody>';
+
     for (var i in items) {
-        html += '<tr><td>' + items[i].event_name + '</td><td>' + items[i].time + '</td><td>' + items[i].price + '</td></tr>';
-        ownerHtml += '<tr><td>' + items[i].event_name + '</td><td>' + items[i].time + '</td><td>' + items[i].price + '</td></tr>';
+        var itemDate = new Date(toUTCTime(items[i].epoch_date*1000));
+        items[i].date = dateString(itemDate);
+        var start = time(itemDate);
+        itemDate.setUTCMinutes(itemDate.getUTCMinutes() + (items[i].duration*60));
+        items[i].time = start + ' - ' + time(itemDate);
+
+        html += '<tr><td>' + items[i].name + '</td><td>' + items[i].date + '</td><td>' + items[i].time + '</td><td>' + items[i].price + '</td></tr>';
+        ownerHtml += '<tr><td>' + items[i].name + '</td><td>' + items[i].date + '</td><td>' + items[i].time + '</td><td>' + items[i].price + '</td></tr>';
     }
     // Create a timestamp
-    var today = new Date();
+    var today = new Date(toUTCTime(new Date().getTime()));
     var timestamp = 'Sent on ' + today.getUTCDate() + '/' + today.getUTCMonth() + '/' + today.getUTCFullYear() + ' at ' + today.getUTCHours() + ':' + today.getUTCMinutes() + ':' + today.getUTCSeconds();
-    html += '</tbody></table><div class="text-center mt-4"><small>' + timestamp + '</small></div>';
-    ownerHtml += '</tbody></table><div class="text-center mt-4"><small>' + timestamp + '</small></div>';
+    html += '</tbody></table><div id="small-container"><small>' + timestamp + '</small></div></body></html>';
+    ownerHtml += '</tbody></table><div id="small-container"><small>' + timestamp + '</small></div></body></html>';
   
     // Gmail transporter setup
     var transporter = nodemailer.createTransport({
