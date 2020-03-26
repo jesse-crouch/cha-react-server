@@ -60,6 +60,67 @@ app.get('/api/serverURL', (req, res) => {
     res.send({ server: 'http://localhost:3500' });
 });
 
+app.post('/api/excelData', (req, res) => {
+    console.log(req.bodyrs);
+    res.send({ success: true });
+});
+
+app.post('/api/searchBookings', (req, res) => {
+    (async function() {
+        var filledFields = JSON.parse(req.body.filledFields);
+
+        var query = 'select s.*, ss.id_chain, ss.duration, ss.name as service_name, extract(epoch from date) as epoch_date from sale s, service ss where ss.id = s.service_id';
+        for (var i in filledFields) {
+            if (filledFields[i] != null) {
+                if (i == 0) { query += ' and first_name = \'' + filledFields[i] + '\''; }
+                if (i == 1) { query += ' and last_name = \'' + filledFields[i] + '\''; }
+                if (i == 2) { query += ' and email = \'' + filledFields[i] + '\''; }
+                if (i == 3) { query += ' and phone = \'' + filledFields[i] + '\''; }
+                if (i == 4) { query += ' and child_first_name = \'' + filledFields[i] + '\''; }
+                if (i == 5) { query += ' and child_last_name = \'' + filledFields[i] + '\''; }
+                if (i == 6) { query += ' and s.service_id = ' + filledFields[i]; }
+                if (i == 7) { query += ' and extract(day from date) = ' + filledFields[i]; }
+                if (i == 8) { query += ' and extract(month from date) = ' + filledFields[i]; }
+                if (i == 9) { query += ' and extract(hours from date) = ' + filledFields[i]; }
+                if (i == 10) { query += ' and extract(minutes from date) = ' + filledFields[i]; }
+            }
+        }
+        var result = await DB_client.query(query);
+        var bookings = result.rows;
+        for (var i in bookings) {
+            bookings[i].fullServiceName = await getFullServiceName({ name: bookings[i].service_name, id_chain: bookings[i].id_chain });
+        }
+
+        if (result.rowCount > 0) {
+            res.send({ bookings: bookings });
+        } else {
+            res.send({ error: 'No results found.' });
+        }
+
+        res.send({ error: query });
+    })();
+});
+
+app.get('/api/searchTodayBookings', (req, res) => {
+    (async function() {
+        var currentDate = new Date();
+        var query = 'select s.*, ss.id_chain, ss.duration, ss.name as service_name, extract(epoch from date) as epoch_date from sale s, service ss where ss.id = s.service_id and extract(day from date) = ' + currentDate.getDate() +
+                    ' and extract(month from date) = ' + (currentDate.getUTCMonth() + 1) + ' and extract(year from date) = ' + currentDate.getFullYear();
+        console.log('QUERY: ' + query);
+        var result = await DB_client.query(query);
+        var bookings = result.rows;
+        for (var i in bookings) {
+            bookings[i].fullServiceName = await getFullServiceName({ name: bookings[i].service_name, id_chain: bookings[i].id_chain });
+        }
+
+        if (result.rowCount > 0) {
+            res.send({ bookings: bookings });
+        } else {
+            res.send({ error: 'No results found.' });
+        }
+    })();
+});
+
 app.post('/api/getServices', (req, res) => {
     (async function() {
         if (req.body.id != undefined) {
@@ -321,7 +382,7 @@ app.get('/api/getSelectData', (req, res) => {
         var instructorResult = await DB_client.query(query);
         
         res.send({
-            services: services,
+            services: result.rows,
             instructors: instructorResult.rows
         });
     })();
