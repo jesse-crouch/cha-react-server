@@ -60,9 +60,42 @@ app.get('/api/serverURL', (req, res) => {
     res.send({ server: 'http://localhost:3500' });
 });
 
-app.post('/api/excelData', (req, res) => {
-    console.log(req.bodyrs);
-    res.send({ success: true });
+app.post('/api/deleteBooking', (req, res) => {
+    (async function() {
+        // If the event occupied by this booking is open and has only 1 spot taken, delete the event as well.
+        //      Otherwise, decrement the open_spots of the event.
+        var query = 'select e.id, e.open_spots, e.total_spots, e.service_id, s.id as sale_id, ss.type from event e, sale s, service ss' +
+                    ' where s.id = ' + req.body.id + ' and e.id = s.event_id and ss.id = e.service_id';
+        console.log('QUERY: ' + query);
+        var result = await DB_client.query(query);
+
+        if (result.rows[0].type == 'open' && result.rows[0].open_spots == (result.rows[0].total_spots - 1)) {
+            // Remove the event
+            query = 'delete from event where id = ' + result.rows[0].id;
+            console.log('QUERY: ' + query);
+            var deleteResult = await DB_client.query(query);
+        } else {
+            // Decrement the open spots
+            query = 'update event set open_spots = (open_spots - 1) where id = ' + result.rows[0].id;
+            console.log('QUERY: ' + query);
+            var decrementResult = await DB_client.query(query);
+        }
+
+        // Delete the sale
+        query = 'delete from sale where id = ' + req.body.id;
+        console.log('QUERY: ' + query);
+        result = await DB_client.query(query);
+
+        res.send({ error: null });
+    })();
+});
+
+app.post('/api/updatePaidBooking', (req, res) => {
+    (async function() {
+        var query = 'update sale set amount_due = 0 where id = ' + req.body.id;
+        var result = await DB_client.query(query);
+        res.send({ error: null });
+    })();
 });
 
 app.post('/api/searchBookings', (req, res) => {
@@ -85,6 +118,7 @@ app.post('/api/searchBookings', (req, res) => {
                 if (i == 10) { query += ' and extract(minutes from date) = ' + filledFields[i]; }
             }
         }
+        query += ' order by id asc;';
         var result = await DB_client.query(query);
         var bookings = result.rows;
         for (var i in bookings) {
@@ -121,25 +155,52 @@ app.get('/api/searchTodayBookings', (req, res) => {
     })();
 });
 
+app.get('/api/getAllServices', (req, res) => {
+    (async function() {
+        var query = 'select * from service order by id asc;';
+        console.log('QUERY: ' + query);
+        var result = await DB_client.query(query);
+        if (result.rowCount > 0) {
+            res.send({ services: result.rows });
+        } else {
+            res.send({ error: 'Internal server error' });
+        }
+    })();
+});
+
 app.post('/api/getServices', (req, res) => {
     (async function() {
-        if (req.body.id != undefined) {
-            // Get a list of all child services
-            var query = 'select * from service where ' + req.body.id + ' =  any(id_chain) order by id asc';
-            console.log('QUERY: ' + query);
-            var result = await DB_client.query(query);
-            if (result.rowCount > 0) {
-                res.send({ services: result.rows });
-            } else {
-                // This is the last service in the chain
-                res.send({ services: [] });
-            }
-        } else {
-            // Get a list of all parent services
+        console.log(req.body.level);
+        if (req.body.level == 1) {
+            // Get parent services
             var query = 'select * from service where id_chain is null order by id asc';
             console.log('QUERY: ' + query);
             var result = await DB_client.query(query);
             res.send({ services: result.rows });
+        } else {
+            if (req.body.previous) {
+                // Get a list of all parent services of the given service
+                var query = 'select * from service where ' + req.body.previous + ' = any(id_chain) and array_length(id_chain,1) = ' + (req.body.level-1) + ' order by id asc';
+                console.log('QUERY: ' + query);
+                var result = await DB_client.query(query);
+                if (result.rowCount > 0) {
+                    res.send({ services: result.rows });
+                } else {
+                    // This is the last service in the chain
+                    res.send({ services: [] });
+                }
+            } else {
+                // Get a list of all child services
+                var query = 'select * from service where ' + req.body.id + ' = any(id_chain) and array_length(id_chain,1) = ' + (req.body.level-1) + ' order by id asc';
+                console.log('QUERY: ' + query);
+                var result = await DB_client.query(query);
+                if (result.rowCount > 0) {
+                    res.send({ services: result.rows });
+                } else {
+                    // This is the last service in the chain
+                    res.send({ services: [] });
+                }
+            }
         }
     })();
 });
@@ -200,10 +261,13 @@ app.post('/api/getCalendarInfo', (req, res) => {
             console.log('QUERY: ' + query);
             var eventResult = await DB_client.query(query);
 
-            // Check for conflicting resource usage
-            query = 'select e.*, extract(epoch from date) as epoch_date, s.duration from event e, service s where s.id = e.service_id and s.resource_id = ' + baseService.resource_id + ' and (extract(epoch from date)*1000) between ' + startDate.getTime() + ' and ' + (startDate.getTime() + (1000*60*60*24*7));
-            console.log('QUERY: ' + query);
-            var resourceResult = await DB_client.query(query);
+            // Check for large events, unless this service is sense arena
+            var largeEventResult = null;
+            if (baseService.resource_id != 4) {
+                query = 'select e.*, extract(epoch from date) as epoch_date, s.duration, s.resource_id from event e, service s where s.id = e.service_id and s.resource_id = 8 and (extract(epoch from date)*1000) between ' + startDate.getTime() + ' and ' + (startDate.getTime() + (1000*60*60*24*7));
+                console.log('QUERY: ' + query);
+                largeEventResult = await DB_client.query(query);
+            }
 
             // Add the service info to each event
             for (var i in eventResult.rows) {
@@ -214,7 +278,7 @@ app.post('/api/getCalendarInfo', (req, res) => {
                 service_info: baseService,
                 events: eventResult.rows,
                 startDate: startDate.getTime(),
-                resourceConflicts: resourceResult.rows
+                largeEvents: (largeEventResult) ? largeEventResult.rows : null
             });
         }
     })();
@@ -244,18 +308,13 @@ app.post('/api/getEventManagerEvents', (req, res) => {
 
 app.post('/api/getEvent', (req, res) => {
     (async function() {
-        var query = 'select e.*, s.duration, s.type, extract(epoch from date) as epoch_date from event e, service s where e.id = ' + req.body.id + ' and s.id = e.service_id';
+        var query = 'select e.*, s.duration, s.type, s.price, extract(epoch from date) as epoch_date from event e, service s where e.id = ' + req.body.id + ' and s.id = e.service_id';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
 
         if (result.rowCount > 0) {
             res.send({
-                event: {
-                    id: result.rows[0].id,
-                    event_name: result.rows[0].name,
-                    epoch_date: result.rows[0].epoch_date,
-                    duration: result.rows[0].duration
-                }
+                event: result.rows[0]
             });
         } else {
             res.send({ error: 'No event found in DB' });
@@ -288,18 +347,23 @@ app.post('/api/addEvent', (req, res) => {
 
                 var days = JSON.parse(req.body.days);
                 for (var i in days) {
-                    console.log(req.body.date*1000);
+                    /*console.log(req.body.date*1000);
                     var addDate = new Date(toUTCTime(req.body.date*1000));
                     console.log(addDate.toUTCString());
                     addDate.setDate(addDate.getDate() - addDate.getDay());
                     addDate.setDate(addDate.getDate() + days[i]);
-                    console.log(addDate);
+                    console.log(addDate);*/
+
+                    var date = new Date(req.body.date*1000);
+                    date.setDate(date.getDate() - date.getDay());
+                    date.setDate(date.getDate() + days[i]);
                     for (var j=0; j<2; j++) {
-                        query = 'insert into event(name, service_id, date, recurrence_id) values ' +
-                                '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (addDate.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ')';
+                        query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots) values ' +
+                                '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + date.getTime()/1000 + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ')';
                         console.log('QUERY: ' + query);
                         result = await DB_client.query(query);
-                        addDate.setDate(addDate.getDate() + 7);
+                        date.setDate(date.getDate() + 7);
+                        //addDate.setDate(addDate.getDate() + 7);
                     }
                 }
                 res.send({ error: null });
@@ -340,7 +404,7 @@ app.post('/api/deleteEvents', (req, res) => {
                 res.send({ error: 'This event contains a booking.' });
             } else {
                 // Delete the single event given
-                var query = 'delete * from event where id = ' + startEvent.id;
+                var query = 'delete from event where id = ' + startEvent.id;
                 console.log('QUERY: ' + query);
                 var result = await DB_client.query(query);
                 res.send({ error: null });
@@ -354,12 +418,12 @@ app.post('/api/deleteEvents', (req, res) => {
                 res.send({ error: ((result.rowCount > 1) ? result.rowCount + ' events' : 'One event') + ' in this recurrence contain' + ((result.rowCount > 1) ? '' : 's') + ' a booking.' });
             } else {
                 // Delete all events belonging to the same recurrence as the event given
-                var query = 'delete * from event where recurrence_id = ' + startEvent.recurrence_id;
+                var query = 'delete from event where recurrence_id = ' + startEvent.recurrence_id;
                 console.log('QUERY: ' + query);
                 var result = await DB_client.query(query);
 
                 // Delete the recurrence entry
-                query = 'delete * from recurrence where id = ' + startEvent.recurrence_id;
+                query = 'delete from recurrence where id = ' + startEvent.recurrence_id;
                 console.log('QUERY: ' + query);
                 result = await DB_client.query(query);
                 res.send({ error: null });
@@ -515,7 +579,7 @@ app.post('/api/sale', (req, res) => {
             query = 'insert into sale(user_id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free)' +
                     ' values(' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
                     req.body.phone + '\',\'' + req.body.child_first_name + '\',\'' + req.body.child_last_name + '\',' + items[i].service_id + ',' +
-                    'to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\',' + req.body.amount_due + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ')';
+                    'to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\',' + (parseFloat(items[i].price.split('/')[0])*1.13).toFixed(2) + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ')';
             console.log('QUERY: ' + query);
             result = await DB_client.query(query);
 
@@ -543,7 +607,7 @@ app.post('/api/sale', (req, res) => {
 
         res.send({ error: null });
     })();
-})
+});
 
 function sendEmail(email, first_name, last_name, items) {
     var msg = first_name[0].toUpperCase() + first_name.substr(1) + ', You have ordered the following items at Cosgrove Hockey Academy.';
@@ -564,7 +628,7 @@ function sendEmail(email, first_name, last_name, items) {
             'width="600" class="CToWUd a6T" tabindex="0"><h2>Sale</h2><p>' + ownerMsg + '</p><table style="margin:0 auto"><thead><tr><th>Item</th><th>Date</th><th>Time</th><th>Price</th></tr></thead><tbody>';
 
     for (var i in items) {
-        var itemDate = new Date(toUTCTime(items[i].epoch_date*1000));
+        var itemDate = new Date(items[i].epoch_date*1000);
         items[i].date = dateString(itemDate);
         var start = time(itemDate);
         itemDate.setUTCMinutes(itemDate.getUTCMinutes() + (items[i].duration*60));
