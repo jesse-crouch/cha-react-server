@@ -155,6 +155,30 @@ app.get('/api/searchTodayBookings', (req, res) => {
     })();
 });
 
+app.post('/api/getAllSales', (req, res) => {
+    (async function() {
+        var payload = getPayload(req.body.token);
+        if (payload.admin) {
+            var query = 'select sale.id, initcap(concat(first_name,\' \',last_name)) as name, email, initcap(concat(child_first_name,\' \',child_last_name)) as child_name, s.id_chain, s.name as service_name, extract(epoch from date)*1000 as date, amount_due, round(sale.price::numeric*0.884956,2) as base_price, round(sale.price::numeric*0.115044,2) as tax, round(sale.price::numeric,2) as total from sale, service s where s.id = service_id order by date desc';
+            console.log('QUERY: ' + query);
+            var result = await DB_client.query(query);
+
+            // Add service name to sales
+            for (var i in result.rows) {
+                var name = await getFullServiceName({
+                    id_chain: result.rows[i].id_chain,
+                    name: result.rows[i].service_name
+                });
+                result.rows[i].fullServiceName = name;
+            }
+
+            res.send({ sales: result.rows });
+        } else {
+            res.sendStatus(403);
+        }
+    })();
+});
+
 app.get('/api/getAllServices', (req, res) => {
     (async function() {
         var query = 'select * from service order by id asc;';
@@ -355,6 +379,16 @@ app.post('/api/addEvent', (req, res) => {
                 result = await DB_client.query(query);
                 var recurrence_id = result.rows[0].id;
 
+                // Get default duration if client sent null
+                var duration = req.body.duration;
+                if (req.body.duration == 'null') {
+                    query = 'select duration from service where id = ' + req.body.service;
+                    console.log('QUERY: ' + query);
+                    result = await DB_client.query(query);
+                    duration = result.rows[0].duration;
+                }
+
+
                 var date = new Date(req.body.date*1000);
                 if (days != null && req.body.days.length > 0) {
                     // Weekly recurring event
@@ -367,7 +401,7 @@ app.post('/api/addEvent', (req, res) => {
                         for (var j=0; j<26; j++) {
                             //console.log(date);
                             query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration) values ' +
-                                    '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ', null)';
+                                    '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ', ' + duration + ')';
                             //console.log('QUERY: ' + query);
                             result = await DB_client.query(query);
                             date.setDate(date.getDate() + 7);
@@ -379,7 +413,7 @@ app.post('/api/addEvent', (req, res) => {
                         console.log('MULTI DAY EVENT');
                         for (var i=0; i<req.body.duration; i++) {
                             query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration) values ' +
-                                    '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ', null)';
+                                    '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ', ' + duration + ')';
                             console.log('QUERY: ' + query);
                             result = await DB_client.query(query);
                             date.setDate(date.getDate() + 1);
@@ -390,7 +424,7 @@ app.post('/api/addEvent', (req, res) => {
                         for (var i=0; i<req.body.duration; i++) {
                             for (var j=0; j<5; j++) {
                                 query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration) values ' +
-                                        '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ', null)';
+                                        '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ', ' + duration + ')';
                                 console.log('QUERY: ' + query);
                                 result = await DB_client.query(query);
                                 date.setDate(date.getDate() + 1);
@@ -406,7 +440,7 @@ app.post('/api/addEvent', (req, res) => {
                 console.log('SINGLE EVENT');
                 // This is a single event, add it
                 query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration) values ' +
-                        '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + req.body.date + ') at time zone \'UTC\', null, ' + req.body.spots + ',' + req.body.spots + ', ' + req.body.duration + ')';
+                        '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + req.body.date + ') at time zone \'UTC\', null, ' + req.body.spots + ',' + req.body.spots + ', ' + duration + ')';
                 console.log('QUERY: ' + query);
                 result = await DB_client.query(query);
                 res.send({ error: null });
@@ -415,15 +449,26 @@ app.post('/api/addEvent', (req, res) => {
     })();
 });
 
+app.get('/api/getScheduleEvents', (req, res) => {
+    (async function() {
+        var query = 'select *, extract(epoch from date)*1000 as epoch_date from event where extract(epoch from date) between 1589072400 and 1589670000 order by date asc;';
+        console.log('QUERY: ' + query);
+        var result = await DB_client.query(query);
+        res.send({ events: result.rows });
+    })();
+});
+
 async function getFullServiceName(service) {
     var name = '';
-    if (service.id_chain.length > 0) {
-        for (var i in service.id_chain) {
-            var query = 'select name from service where id = ' + service.id_chain[i];
-            console.log('QUERY: ' + query);
-            var result = await DB_client.query(query);
+    if (service.id_chain != null) {
+        if (service.id_chain.length > 0) {
+            for (var i in service.id_chain) {
+                var query = 'select name from service where id = ' + service.id_chain[i];
+                console.log('QUERY: ' + query);
+                var result = await DB_client.query(query);
 
-            name += result.rows[0].name + ' - ';
+                name += result.rows[0].name + ' - ';
+            }
         }
     }
     return name + service.name;
@@ -489,10 +534,14 @@ app.get('/api/getSelectData', (req, res) => {
 });
 
 app.post('/api/getPayload', (req, res) => {
-    var payload = jwt.verify(req.body.token, secret_key);
-    res.send({
-        payload: payload
-    });
+    if (req.body.token != null) {
+        var payload = jwt.verify(req.body.token, secret_key);
+        res.send({
+            payload: payload
+        });
+    } else {
+        res.send({ payload: null });
+    }
 });
 
 app.post('/api/getUserBookings', (req, res) => {
@@ -868,26 +917,40 @@ app.post('/api/sale', (req, res) => {
         var sales = [], total = 0;
         var freeUsed = false;
         for (var i in items) {
+
+            query = 'select max(id) as id from sale';
+            result = await DB_client.query(query);
+            var saleID = result.rows[0].id + 1;
+
             if (items[i].type == 'open') {
+                // Add to sale
                 var price = (parseFloat(items[i].price.split('/')[0])*1.13).toFixed(2);
                 total += price;
-                query = 'insert into sale(user_id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free)' +
-                        ' values(' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
+                query = 'insert into sale(id, user_id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free, price)' +
+                        ' values(' + saleID + ',' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
                         req.body.phone + '\',\'' + req.body.child_first_name + '\',\'' + req.body.child_last_name + '\',' + items[i].service_id + ',' +
-                        'to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\',' + price + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ')';
+                        'to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\',' + price + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',' + price + ')';
                 console.log('QUERY: ' + query);
                 result = await DB_client.query(query);
-
-                query = 'select id from sale where id = (select max(id) from sale)';
-                console.log('QUERY: ' + query);
-                result = await DB_client.query(query);
-                sales.push(result.rows[0].id);
+                sales.push(saleID);
                 freeUsed = req.body.free;
             } else if (items[i].type == 'class') {
                 // If the item is a class, decrement the open spots
                 query = 'update event set open_spots = (open_spots - 1) where id = ' + items[i].id;
                 console.log('QUERY: ' + query);
                 result = await DB_client.query(query);
+
+                // Add to sale
+                var price = (parseFloat(items[i].price.split('/')[0])*1.13).toFixed(2);
+                total += price;
+                query = 'insert into sale(id, user_id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free, price)' +
+                        ' values(' + saleID + ',' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
+                        req.body.phone + '\',\'' + req.body.child_first_name + '\',\'' + req.body.child_last_name + '\',' + items[i].service_id + ',' +
+                        'to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\',' + price + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',' + price + ')';
+                console.log('QUERY: ' + query);
+                result = await DB_client.query(query);
+                sales.push(saleID);
+                freeUsed = req.body.free;
             }
         }
 
@@ -927,6 +990,19 @@ app.post('/api/sale', (req, res) => {
         }
 
         res.send({ error: null, total: total });
+    })();
+});
+
+app.post('/api/getAllUsers', (req, res) => {
+    (async function() {
+        var payload = getPayload(req.body.token);
+        if (payload.admin) {
+            var query = 'select * from users order by id asc';
+            var result = await DB_client.query(query);
+            res.send({ users: result.rows });
+        } else {
+            res.sendStatus(403);
+        }
     })();
 });
 
