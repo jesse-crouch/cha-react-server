@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const hash = require('crypto-js');
 const nodemailer = require('nodemailer');
 const https = require('https');
+const fs = require('fs');
 
 // Set your secret key. Remember to switch to your live secret key in production!
 // See your keys here: https://dashboard.stripe.com/account/apikeys
@@ -1092,6 +1093,9 @@ function sendEmail(email, first_name, last_name, items) {
 }
 
 // End - API
-https.createServer({}, app).listen(port, () => {
+https.createServer({
+    key: fs.readFileSync('server-key.pem'),
+    cert: fs.readFileSync('server-cert.pem')
+  }, app).listen(port, () => {
     console.log('Listening on port ' + port + '...');
 });
