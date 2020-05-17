@@ -4,6 +4,7 @@ const bodyParser = require('body-parser');
 const jwt = require('jsonwebtoken');
 const hash = require('crypto-js');
 const nodemailer = require('nodemailer');
+const https = require('https');
 
 // Set your secret key. Remember to switch to your live secret key in production!
 // See your keys here: https://dashboard.stripe.com/account/apikeys
@@ -1091,7 +1092,6 @@ function sendEmail(email, first_name, last_name, items) {
 }
 
 // End - API
-
-app.listen(port, () => {
+https.createServer({}, app).listen(port, () => {
     console.log('Listening on port ' + port + '...');
 });
