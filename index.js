@@ -11,7 +11,7 @@ const stripe = require('stripe')('sk_test_I86H6VkUjtbDN5B7304wBpyw00nChfGgPw');
 
 const app = express();
 
-const port = 3500;
+const port = 5460;
 const secret_key = '65F1FAD3B9E2C35E1C297179A389AFA32A4B68907209ECC5E6F94479489F4258';
 const DB_client = new Client({
     host: '99.242.212.59',
