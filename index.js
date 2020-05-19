@@ -451,11 +451,23 @@ app.post('/api/addEvent', (req, res) => {
     })();
 });
 
-app.get('/api/getScheduleEvents', (req, res) => {
+app.post('/api/getScheduleEvents', (req, res) => {
     (async function() {
-        var query = 'select *, extract(epoch from date)*1000 as epoch_date from event where extract(epoch from date) between 1589072400 and 1589670000 order by date asc;';
+        var start = req.body.date/1000, end = (parseInt(req.body.date) + (1000*60*60*24*7))/1000;
+        var query = 'select *, extract(epoch from date)*1000 as epoch_date from event where extract(epoch from date) between ' + start + ' and ' + end + ' order by date asc;';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
+
+        // Find the service ancestor for colour coding
+        for (var i in result.rows) {
+            query = 'select name, id_chain from service where id = ' + result.rows[i].service_id;
+            var serviceResult = await DB_client.query(query);
+
+            query = 'select colour from service where id = ' + serviceResult.rows[0].id_chain[0];
+            serviceResult = await DB_client.query(query);
+            result.rows[i].colour = serviceResult.rows[0].colour;
+        }
+
         res.send({ events: result.rows });
     })();
 });
@@ -1093,9 +1105,13 @@ function sendEmail(email, first_name, last_name, items) {
 }
 
 // End - API
-https.createServer({
+/*https.createServer({
     key: fs.readFileSync('server-key.pem'),
     cert: fs.readFileSync('server-cert.pem')
   }, app).listen(port, () => {
     console.log('Listening on port ' + port + '...');
+});*/
+
+app.listen(port, () => {
+    console.log('Listening on port ' + port);
 });
