@@ -1105,13 +1105,9 @@ function sendEmail(email, first_name, last_name, items) {
 }
 
 // End - API
-/*https.createServer({
+https.createServer({
     key: fs.readFileSync('server-key.pem'),
     cert: fs.readFileSync('server-cert.pem')
   }, app).listen(port, () => {
     console.log('Listening on port ' + port + '...');
-});*/
-
-app.listen(port, () => {
-    console.log('Listening on port ' + port);
 });
