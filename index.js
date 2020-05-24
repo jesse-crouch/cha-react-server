@@ -15,14 +15,26 @@ const app = express();
 
 const port = 5460;
 const secret_key = '65F1FAD3B9E2C35E1C297179A389AFA32A4B68907209ECC5E6F94479489F4258';
-const DB_client = new Client({
+var DB_client = new Client({
     host: '99.242.212.59',
     port: 5432,
     database: 'CHA',
     user: 'postgres',
     password: 'mplkO0'
 });
+async function reconnectDB() {
+    await DB_client.end();
+    DB_client = new Client({
+        host: '99.242.212.59',
+        port: 5432,
+        database: 'CHA',
+        user: 'postgres',
+        password: 'mplkO0'
+    });
+    await DB_client.connect();
+}
 DB_client.connect();
+setInterval(reconnectDB, 1000*60*30);
 app.use(bodyParser.urlencoded({ extended: false }))
 app.use('*', (req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
@@ -248,7 +260,7 @@ app.post('/api/getCalendarInfo', (req, res) => {
             currentDate.setHours(23,59,0,0);
             const end = currentDate.getTime();
 
-            var query = 'select e.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.last_name) as instructor_name, s.duration as serviceDuration, s.price, s.type from event e, instructor i, service s where service_id = ' + req.body.id + ' and s.id = ' + req.body.id + ' and i.id = s.instructor and (extract(epoch from date)*1000) between ' + start + ' and ' + end;
+            var query = 'select e.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.last_name) as instructor_name, s.duration as serviceDuration, s.price, s.type from event e, instructor i, service s where service_id = ' + req.body.id + ' and s.id = ' + req.body.id + ' and i.id = s.instructor and (extract(epoch from date)*1000) between ' + start + ' and ' + end + ' order by date asc';
             console.log('QUERY: ' + query);
             const result = await DB_client.query(query);
             currentDate.setHours(currentDate.getHours() + 1);
@@ -454,7 +466,7 @@ app.post('/api/addEvent', (req, res) => {
 app.post('/api/getScheduleEvents', (req, res) => {
     (async function() {
         var start = req.body.date/1000, end = (parseInt(req.body.date) + (1000*60*60*24*7))/1000;
-        var query = 'select *, extract(epoch from date)*1000 as epoch_date from event where extract(epoch from date) between ' + start + ' and ' + end + ' order by date asc;';
+        var query = 'select e.*, extract(epoch from e.date)*1000 as epoch_date, s.type from event e, service s where s.id = e.service_id and type = \'class\' and extract(epoch from date) between ' + start + ' and ' + end + ' order by date asc;';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
 
