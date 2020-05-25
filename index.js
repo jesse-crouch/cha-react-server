@@ -9,7 +9,7 @@ const fs = require('fs');
 
 // Set your secret key. Remember to switch to your live secret key in production!
 // See your keys here: https://dashboard.stripe.com/account/apikeys
-const stripe = require('stripe')('sk_test_I86H6VkUjtbDN5B7304wBpyw00nChfGgPw');
+const stripe = require('stripe')('sk_live_MlBsXWW4evfjX1lfDHzj5yHw00KO2pYomK');
 
 const app = express();
 
@@ -18,7 +18,7 @@ const secret_key = '65F1FAD3B9E2C35E1C297179A389AFA32A4B68907209ECC5E6F94479489F
 var DB_client = new Client({
     host: '99.242.212.59',
     port: 5432,
-    database: 'CHA',
+    database: 'CHA_Testing',
     user: 'postgres',
     password: 'mplkO0'
 });
@@ -27,7 +27,7 @@ async function reconnectDB() {
     DB_client = new Client({
         host: '99.242.212.59',
         port: 5432,
-        database: 'CHA',
+        database: 'CHA_Testing',
         user: 'postgres',
         password: 'mplkO0'
     });
@@ -136,13 +136,13 @@ app.post('/api/searchBookings', (req, res) => {
         query += ' order by id asc;';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
-        var bookings = result.rows;
+        /*var bookings = result.rows;
         for (var i in bookings) {
             bookings[i].fullServiceName = await getFullServiceName({ name: bookings[i].service_name, id_chain: bookings[i].id_chain });
-        }
+        }*/
 
         if (result.rowCount > 0) {
-            res.send({ bookings: bookings });
+            res.send({ bookings: result.rows });
         } else {
             res.send({ error: 'No results found.' });
         }
@@ -156,13 +156,13 @@ app.get('/api/searchTodayBookings', (req, res) => {
                     ' and extract(month from date) = ' + (currentDate.getUTCMonth() + 1) + ' and extract(year from date) = ' + currentDate.getFullYear();
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
-        var bookings = result.rows;
+        /*var bookings = result.rows;
         for (var i in bookings) {
             bookings[i].fullServiceName = await getFullServiceName({ name: bookings[i].service_name, id_chain: bookings[i].id_chain });
-        }
+        }*/
 
         if (result.rowCount > 0) {
-            res.send({ bookings: bookings });
+            res.send({ bookings: result.rows });
         } else {
             res.send({ error: 'No results found.' });
         }
@@ -178,13 +178,13 @@ app.post('/api/getAllSales', (req, res) => {
             var result = await DB_client.query(query);
 
             // Add service name to sales
-            for (var i in result.rows) {
+            /*for (var i in result.rows) {
                 var name = await getFullServiceName({
                     id_chain: result.rows[i].id_chain,
                     name: result.rows[i].service_name
                 });
                 result.rows[i].fullServiceName = name;
-            }
+            }*/
 
             res.send({ sales: result.rows });
         } else {
@@ -282,8 +282,8 @@ app.post('/api/getCalendarInfo', (req, res) => {
         console.log('QUERY: ' + query);
         var serviceResult = await DB_client.query(query);
         var baseService = serviceResult.rows[0];
-        baseService.fullServiceName = await getFullServiceName(baseService);
-        console.log(baseService.fullServiceName);
+        /*baseService.fullServiceName = await getFullServiceName(baseService);
+        console.log(baseService.fullServiceName);*/
 
         // If this is a class, determine the first instance
         var startDate = new Date(req.body.date*1000);
@@ -309,11 +309,9 @@ app.post('/api/getCalendarInfo', (req, res) => {
 
             // Check for large events, unless this service is sense arena
             var largeEventResult = null;
-            if (baseService.resource_id != 4) {
-                query = 'select e.*, extract(epoch from date) as epoch_date, s.duration as serviceDuration, s.resource_id from event e, service s where s.id = e.service_id and s.resource_id = 8 and (extract(epoch from date)*1000) between ' + startDate.getTime() + ' and ' + (startDate.getTime() + (1000*60*60*24*7));
-                console.log('QUERY: ' + query);
-                largeEventResult = await DB_client.query(query);
-            }
+            query = 'select *, extract(epoch from date) as epoch_date from event e where resource_id = ' + serviceResult.rows[0].resource_id + ' and (extract(epoch from date)*1000) between ' + startDate.getTime() + ' and ' + (startDate.getTime() + (1000*60*60*24*7));
+            console.log('QUERY: ' + query);
+            largeEventResult = await DB_client.query(query);
 
             // Add the service info to each event
             for (var i in eventResult.rows) {
@@ -414,8 +412,11 @@ app.post('/api/addEvent', (req, res) => {
                         date.setDate(date.getDate() + days[i]);
                         for (var j=0; j<26; j++) {
                             //console.log(date);
-                            query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration) values ' +
-                                    '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ', ' + duration + ')';
+                            query = 'select resource_id from service where id = ' + items[i].service_id;
+                            result = await DB_client.query(query);
+
+                            query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration, resource_id) values ' +
+                                    '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ', ' + duration + ',' + result.rows[0].resource_id + ')';
                             //console.log('QUERY: ' + query);
                             result = await DB_client.query(query);
                             date.setDate(date.getDate() + 7);
@@ -426,8 +427,11 @@ app.post('/api/addEvent', (req, res) => {
                         // Multi-day event
                         console.log('MULTI DAY EVENT');
                         for (var i=0; i<req.body.duration; i++) {
+                            query = 'select resource_id from service where id = ' + items[i].service_id;
+                            result = await DB_client.query(query);
+
                             query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration) values ' +
-                                    '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ', ' + duration + ')';
+                                    '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ', ' + duration + ',' + result.rows[0].resource_id + ')';
                             console.log('QUERY: ' + query);
                             result = await DB_client.query(query);
                             date.setDate(date.getDate() + 1);
@@ -437,8 +441,11 @@ app.post('/api/addEvent', (req, res) => {
                         console.log('MULTI WEEK EVENT');
                         for (var i=0; i<req.body.duration; i++) {
                             for (var j=0; j<5; j++) {
+                                query = 'select resource_id from service where id = ' + items[i].service_id;
+                                result = await DB_client.query(query);
+
                                 query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration) values ' +
-                                        '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ', ' + duration + ')';
+                                        '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\', ' + recurrence_id + ',' + req.body.spots + ',' + req.body.spots + ', ' + duration + ',' + result.rows[0].resource_id + ')';
                                 console.log('QUERY: ' + query);
                                 result = await DB_client.query(query);
                                 date.setDate(date.getDate() + 1);
@@ -453,8 +460,11 @@ app.post('/api/addEvent', (req, res) => {
             } else {
                 console.log('SINGLE EVENT');
                 // This is a single event, add it
+                query = 'select resource_id from service where id = ' + items[i].service_id;
+                result = await DB_client.query(query);
+
                 query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration) values ' +
-                        '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + req.body.date + ') at time zone \'UTC\', null, ' + req.body.spots + ',' + req.body.spots + ', ' + duration + ')';
+                        '(\'' + req.body.name + '\', ' + req.body.service + ',to_timestamp(' + req.body.date + ') at time zone \'UTC\', null, ' + req.body.spots + ',' + req.body.spots + ', ' + duration + ',' + result.rows[0].resource_id + ')';
                 console.log('QUERY: ' + query);
                 result = await DB_client.query(query);
                 res.send({ error: null });
@@ -545,7 +555,7 @@ app.get('/api/getSelectData', (req, res) => {
         var query = 'select * from service where type = \'class\' and id_chain is not null order by id asc';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
-        for (var i in result.rows) result.rows[i].fullServiceName = await getFullServiceName(result.rows[i]);
+        /*for (var i in result.rows) result.rows[i].fullServiceName = await getFullServiceName(result.rows[i]);*/
 
         // Get instructors
         query = 'select *, concat(first_name, \' \', last_name) as fullName from instructor';
@@ -584,11 +594,11 @@ app.post('/api/getUserBookings', (req, res) => {
         }
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
-        if (result.rowCount > 0) {
+        /*if (result.rowCount > 0) {
             for (var i in result.rows) {
                 result.rows[i].fullServiceName = await getFullServiceName({ id_chain: result.rows[i].id_chain, name: result.rows[i].name });
             }
-        }
+        }*/
 
         res.send({ bookings: result.rows });
     })();
@@ -763,6 +773,71 @@ app.post('/api/deleteInstructor', (req, res) => {
     })();
 });
 
+async function runQuery(query) {
+    console.log('QUERY: ' + query);
+    return await DB_client.query(query);
+}
+
+app.post('/api/clockEmployee', (req, res) => {
+    (async function() {
+        var payload = getPayload(req.body.token);
+        if (payload.id == 4) {
+            // Check if there is an employee associated with the card number given
+            var result = await runQuery('select *, concat(first_name,\'\',last_name) as fullName, extract(epoch from clock_in_time)*1000 as timestamp from employee where card_id = ' + req.body.card);
+            if (result.rowCount > 0) {
+                // If the employee is active, set inactive, and add to hours the difference between
+                //      the saved timestamp and the current time.
+                if (result.rows[0].active) {
+                    var timestamp = new Date(result.rows[0].timestamp);
+                    var difference = (new Date().getTime() - timestamp.getTime())/(1000*60);
+                    if (difference > (20*60)) {
+                        // If this shift is unusally long, notify the owner by email that there
+                        //      might have been a mistake.
+                        // Gmail transporter setup
+                        var transporter = nodemailer.createTransport({
+                            service: 'gmail',
+                            auth: {
+                                user: 'noreply.cosgrovehockey@gmail.com',
+                                pass: 'mplkO0935'
+                            }
+                        });
+                        var mailOptions = {
+                            from: 'noreply.cosgrovehockey@gmail.com',
+                            to: 'cosgrovehockeyacademy@gmail.com',
+                            subject: 'Cosgrove Hockey Academy - Clocking Issue',
+                            html: '<html><body><h5>' + result.rows[0].fullName + ' may not have checked in or out properly. Their last shift has not been added.</h5></body></html>'
+                        };
+                        // Send the email
+                        transporter.sendMail(mailOptions, function (err, info) {
+                            if(err)
+                                console.log(err);
+                            else
+                                console.log(info);
+                                (async function() {
+                                    var resetHours = await runQuery();
+                                    res.send({ error: null, status: 'Out', fullName: result.fullName });
+                                })();
+                        });
+                    } else {
+                        // Set inactive, add difference to hours
+                        var hours = (difference / 60).toFixed(2);
+                        var clockOut = await runQuery('update employee set active = false, hours = hours + ' + hours + ', clock_in_time = null where card_id = ' + req.body.card);
+                        res.send({ error: null, status: 'Out', fullName: result.fullName });
+                    }
+                } else {
+                    // Set active, and add the current time as a clock-in timestamp
+                    var clockIn = await runQuery('update employee set active = true, clock_in_time = to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\' where card_id = ' + req.body.card);
+                    res.send({ error: null, status: 'In', fullName: result.fullName });
+                }
+            } else {
+                res.send({ error: null, status: 0 });
+            }
+        } else {
+            res.sendStatus(403);
+        }
+    })();
+});
+
 app.post('/api/addInstructor', (req, res) => {
     (async function() {
         var payload = getPayload(req.body.token);
@@ -781,6 +856,15 @@ app.post('/api/addInstructor', (req, res) => {
 app.post('/api/stageCart', (req, res) => {
     (async function() {
         var query = 'update staging set cart = \'' + req.body.cart + '\', active = false where id = 1';
+        console.log('QUERY: ' + query);
+        var result = await DB_client.query(query);
+        res.send({ error: null });
+    })();
+});
+
+app.get('/api/cancelStaging', (req, res) => {
+    (async function() {
+        var query = 'update staging set cart = null and active = false where id = 1';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
         res.send({ error: null });
@@ -908,6 +992,18 @@ app.post('/api/checkMemberDiscount', (req, res) => {
     })();
 });
 
+app.get('/api/getTodayClasses', (req, res) => {
+    (async function() {
+        var date = new Date();
+        var result = await runQuery('select e.*, extract(epoch from date)*1000 as epoch_date, s.price, s.type from event e, service s where s.id = e.service_id and s.type = \'class\' and extract(day from date) = ' + date.getDate() + ' and extract(month from date) = ' + (date.getMonth()+1) + ' and extract(year from date) = ' + date.getFullYear());
+        if (result.rowCount > 0) {
+            res.send({ error: null, events: result.rows })
+        } else {
+            res.send({ error: 'No classes scheduled for the day' });
+        }
+    })();
+});
+
 app.post('/api/sale', (req, res) => {
     (async function() {
         console.log(req.body.first_name);
@@ -918,8 +1014,11 @@ app.post('/api/sale', (req, res) => {
         // Loop through items, creating events for non classes
         for (var i in items) {
             if (items[i].type == 'open') {
-                query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration) values ' +
-                        '(\'' + items[i].name + '\', ' + items[i].service_id + ',to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\', null, ' + (items[i].total_spots - 1) + ', ' + items[i].total_spots + ', ' + items[i].duration + ')';
+                query = 'select resource_id from service where id = ' + items[i].service_id;
+                result = await DB_client.query(query);
+
+                query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration, resource_id) values ' +
+                        '(\'' + items[i].name + '\', ' + items[i].service_id + ',to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\', null, ' + (items[i].total_spots - 1) + ', ' + items[i].total_spots + ', ' + items[i].duration + ',' + result.rows[0].resource_id + ')';
                 console.log('QUERY: ' + query);
                 result = await DB_client.query(query);
 
@@ -1123,3 +1222,6 @@ https.createServer({
   }, app).listen(port, () => {
     console.log('Listening on port ' + port + '...');
 });
+/*app.listen(port, () => {
+    console.log('Listening on port ' + port + '...');
+});*/
