@@ -412,7 +412,7 @@ app.post('/api/addEvent', (req, res) => {
                         date.setDate(date.getDate() + days[i]);
                         for (var j=0; j<26; j++) {
                             //console.log(date);
-                            query = 'select resource_id from service where id = ' + items[i].service_id;
+                            query = 'select resource_id from service where id = ' + req.body.service;
                             result = await DB_client.query(query);
 
                             query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration, resource_id) values ' +
@@ -783,7 +783,7 @@ app.post('/api/clockEmployee', (req, res) => {
         var payload = getPayload(req.body.token);
         if (payload.id == 4) {
             // Check if there is an employee associated with the card number given
-            var result = await runQuery('select *, concat(first_name,\'\',last_name) as fullName, extract(epoch from clock_in_time)*1000 as timestamp from employee where card_id = ' + req.body.card);
+            var result = await runQuery('select *, concat(first_name,\' \',last_name) as fullName, extract(epoch from clock_in_time)*1000 as timestamp from employee where card_id = ' + req.body.card);
             if (result.rowCount > 0) {
                 // If the employee is active, set inactive, and add to hours the difference between
                 //      the saved timestamp and the current time.
@@ -805,7 +805,7 @@ app.post('/api/clockEmployee', (req, res) => {
                             from: 'noreply.cosgrovehockey@gmail.com',
                             to: 'cosgrovehockeyacademy@gmail.com',
                             subject: 'Cosgrove Hockey Academy - Clocking Issue',
-                            html: '<html><body><h5>' + result.rows[0].fullName + ' may not have checked in or out properly. Their last shift has not been added.</h5></body></html>'
+                            html: '<html><body><h5>' + result.rows[0].fullname + ' may not have checked in or out properly. Their last shift has not been added.</h5></body></html>'
                         };
                         // Send the email
                         transporter.sendMail(mailOptions, function (err, info) {
@@ -815,19 +815,20 @@ app.post('/api/clockEmployee', (req, res) => {
                                 console.log(info);
                                 (async function() {
                                     var resetHours = await runQuery();
-                                    res.send({ error: null, status: 'Out', fullName: result.fullName });
+                                    res.send({ error: null, status: 'Out', fullName: result.rows[0].fullname });
                                 })();
                         });
                     } else {
                         // Set inactive, add difference to hours
                         var hours = (difference / 60).toFixed(2);
                         var clockOut = await runQuery('update employee set active = false, hours = hours + ' + hours + ', clock_in_time = null where card_id = ' + req.body.card);
-                        res.send({ error: null, status: 'Out', fullName: result.fullName });
+                        res.send({ error: null, status: 'Out', fullName: result.rows[0].fullname });
                     }
                 } else {
                     // Set active, and add the current time as a clock-in timestamp
+		    var date = new Date();
                     var clockIn = await runQuery('update employee set active = true, clock_in_time = to_timestamp(' + (date.getTime()/1000) + ') at time zone \'UTC\' where card_id = ' + req.body.card);
-                    res.send({ error: null, status: 'In', fullName: result.fullName });
+                    res.send({ error: null, status: 'In', fullName: result.rows[0].fullname });
                 }
             } else {
                 res.send({ error: null, status: 0 });
