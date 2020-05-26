@@ -969,6 +969,7 @@ app.post('/api/checkMemberDiscount', (req, res) => {
         var payload = jwt.verify(req.body.token, secret_key);
         
         // Check if user has a membership
+        console.log('checking membership');
         if (payload.membership != null) {
             if (payload.membership > 0) {
                 // Memberships have a free class booking per day.
@@ -980,15 +981,15 @@ app.post('/api/checkMemberDiscount', (req, res) => {
                 var result = await DB_client.query(query);
                 if (result.rowCount > 0) {
                     // A free class is already booked on this day
-                    res.send({ error: 'You are not eligble for a free booking, as you have booked a free class on this day already.' });
+                    res.send({ error: 'You are not eligble for a free booking, as you have booked a free class on this day already.', applyDiscount: false });
                 } else {
-                    res.send({ applyDiscount: true });
+                    res.send({ error: null, applyDiscount: true });
                 }
             } else {
-                res.send({ error: 'no_membership' });
+                res.send({ error: null, applyDiscount: false });
             }
         } else {
-            res.send({ error: 'no_membership' });
+            res.send({ error: null, applyDiscount: false });
         }
     })();
 });
@@ -1186,7 +1187,7 @@ function sendEmail(email, first_name, last_name, items) {
     });
 
     // Send email to owner
-    /*var mailOptions = {
+    var mailOptions = {
         from: 'noreply.cosgrovehockey@gmail.com',
         to: 'cosgrovehockeyacademy@gmail.com',
         subject: 'Cosgrove Hockey Academy - Online Sale',
@@ -1198,7 +1199,7 @@ function sendEmail(email, first_name, last_name, items) {
           console.log(err);
         else
           console.log(info);
-    });*/
+    });
 
     // Send email to user
     var mailOptions = {
