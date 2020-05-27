@@ -1219,13 +1219,108 @@ function sendEmail(email, first_name, last_name, items) {
     });
 }
 
+app.post('/api/verification', (req, res) => {
+    (async function() {
+        // Extract date from token and check if it is still valid
+        var token = Buffer.from(req.body.token, 'base64').toString();
+        var payload = jwt.verify(token, secret_key);
+        if ((Math.round(payload.date) + 60*30) > (new Date().getTime()/1000)) {
+            res.send({ error: null });
+        } else {
+            res.send({ error: 'expired' });
+        }
+    })();
+});
+
+app.post('/api/finishRegistration', (req, res) => {
+    (async function() {
+        var token = Buffer.from(req.body.token, 'base64').toString();
+        var payload = jwt.verify(token, secret_key);
+        
+        // Set token to null in DB, hash password with a random salt, and return to client
+        var salt = hash.SHA256(hash.lib.WordArray.random(128 / 8)).toString(hash.enc.Hex).toUpperCase();
+        var pass = hash.SHA256(salt + req.body.password).toString(hash.enc.Hex).toUpperCase();
+
+        var finish = runQuery('update users set token = null, password = \'' + pass + '\', salt = \'' + salt + '\', join_date = to_timestamp(' + (new Date().getTime()/1000) + ') at time zone \'UTC\' where id = ' + payload.id);
+        res.send({ error: null });
+    })();
+});
+
+app.post('/api/register', (req, res) => {
+    (async function() {
+        // Check for an existing user
+        var existingResult = await runQuery('select * from users where email = \'' + req.body.email + '\'');
+        if (existingResult.rowCount > 0) {
+            // If account is not verified, delete it and continue. Otherwise send error to client.
+            if (existingResult.rows[0].token != null) {
+                var deleteUser = await runQuery('delete from users where email = \'' + req.body.email + '\'');
+                main();
+            } else {
+                res.send({ error: 'A verified account already exists with that email.' });
+            }
+        } else {
+            main();
+        }
+        
+        async function main() {
+            var insertUser = await runQuery('insert into users(first_name, last_name, email, phone, salt, password, membership, token, membership_expiry, join_date, passchanged) values (\'' + req.body.first_name.toLowerCase() + '\', \'' + req.body.last_name.toLowerCase() + '\', \'' + req.body.email + '\', \'' + req.body.phone + '\', 0, 0, null, null, null, null, true)');
+            var getID = await runQuery('select id from users where email = \'' + req.body.email + '\'');
+            // Create a verification token
+            var webToken = jwt.sign({
+                id: getID.rows[0].id,
+                date: new Date().getTime()/1000
+            }, secret_key);
+            var token = Buffer.from(webToken).toString('base64');
+
+            // Set the token in the DB and send the verification email
+            var setToken = await runQuery('update users set token = \'' + token + '\' where id = ' + getID.rows[0].id);
+
+            var link = 'https://cosgrovehockeyacademy.com/verification?t=' + token;
+                            
+            // Gmail transporter setup
+            var transporter = nodemailer.createTransport({
+                service: 'gmail',
+                auth: {
+                    user: 'noreply.cosgrovehockey@gmail.com',
+                    pass: 'mplkO0935'
+                }
+            });
+
+            // Create a timestamp
+            var today = new Date();
+            var timestamp = 'Sent on ' + today.toLocaleDateString() + ' at ' + time(today);
+
+            // What to send to the new user
+            var mailOptions = {
+                from: 'noreply.cosgrovehockey@gmail.com',
+                to: req.body.email,
+                subject: 'Cosgrove Hockey Academy - Email Verification',
+                html: '<div id="container"><img src="https://i.ibb.co/7NR413V/logo-lg.png" width="600"/>' +
+                        '<h2 id="subtitle">Welcome to the academy ' + req.body.first_name + ' ' + req.body.surname +
+                        '!</h2><p></p><p id="mainText">We\'re happy you\'ve decided to make an account with us. We just' +
+                        ' need you to verify this email address by clicking the link below.</p><p></p><a id="link" href="' +
+                        link + '">Verify Email</a><p></p><p>You will be asked to set a password for your account, this is ' +
+                        'done during verification to ensure Cosgrove Hockey Academy never sees your password.</p><p></p><small>' +
+                        timestamp + '</small></div>'
+            };
+            // Send the email
+            transporter.sendMail(mailOptions, function (err, info) {
+                if(err)
+                    console.log(err)
+                else
+                    res.send({ error: null });
+            });
+        }
+    })();
+});
+
 // End - API
-https.createServer({
+/*https.createServer({
     key: fs.readFileSync('server-key.pem'),
     cert: fs.readFileSync('server-cert.pem')
   }, app).listen(port, () => {
     console.log('Listening on port ' + port + '...');
-});
-/*app.listen(port, () => {
-    console.log('Listening on port ' + port + '...');
 });*/
+app.listen(port, () => {
+    console.log('Listening on port ' + port + '...');
+});
