@@ -77,7 +77,7 @@ app.get('/api/serverURL', (req, res) => {
 app.post('/api/deleteBooking', (req, res) => {
     (async function() {
         // If the event occupied by this booking is open and has only 1 spot taken, delete the event as well.
-        //      Otherwise, decrement the open_spots of the event.
+        //      Otherwise, increment the open_spots of the event.
         var query = 'select e.id, e.open_spots, e.total_spots, e.service_id, s.id as sale_id, ss.type from event e, sale s, service ss' +
                     ' where s.id = ' + req.body.id + ' and e.id = s.event_id and ss.id = e.service_id';
         console.log('QUERY: ' + query);
@@ -89,8 +89,8 @@ app.post('/api/deleteBooking', (req, res) => {
             console.log('QUERY: ' + query);
             var deleteResult = await DB_client.query(query);
         } else {
-            // Decrement the open spots
-            query = 'update event set open_spots = (open_spots - 1) where id = ' + result.rows[0].id;
+            // Increment the open spots
+            query = 'update event set open_spots = (open_spots + 1) where id = ' + result.rows[0].id;
             console.log('QUERY: ' + query);
             var decrementResult = await DB_client.query(query);
         }
@@ -133,7 +133,7 @@ app.post('/api/searchBookings', (req, res) => {
                 if (i == 10) { query += ' and extract(minutes from date) = ' + filledFields[i]; }
             }
         }
-        query += ' order by id asc;';
+        query += ' order by date asc;';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
         /*var bookings = result.rows;
@@ -153,7 +153,7 @@ app.get('/api/searchTodayBookings', (req, res) => {
     (async function() {
         var currentDate = new Date();
         var query = 'select s.*, ss.id_chain, ss.duration, ss.name as service_name, extract(epoch from date) as epoch_date from sale s, service ss where ss.id = s.service_id and extract(day from date) = ' + currentDate.getDate() +
-                    ' and extract(month from date) = ' + (currentDate.getUTCMonth() + 1) + ' and extract(year from date) = ' + currentDate.getFullYear();
+                    ' and extract(month from date) = ' + (currentDate.getUTCMonth() + 1) + ' and extract(year from date) = ' + currentDate.getFullYear() + ' order by date asc';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
         /*var bookings = result.rows;
@@ -208,7 +208,7 @@ app.get('/api/getAllServices', (req, res) => {
 
 app.get('/api/getMemberships', (req, res) => {
     (async function() {
-        var query = 'select * from membership';
+        var query = 'select * from membership order by id asc';
         var result = await DB_client.query(query);
         res.send({ memberships: result.rows });
     })();
@@ -478,7 +478,7 @@ app.post('/api/addEvent', (req, res) => {
 app.post('/api/getScheduleEvents', (req, res) => {
     (async function() {
         var start = req.body.date/1000, end = (parseInt(req.body.date) + (1000*60*60*24*7))/1000;
-        var query = 'select e.*, extract(epoch from e.date)*1000 as epoch_date, s.type from event e, service s where s.id = e.service_id and type = \'class\' and extract(epoch from date) between ' + start + ' and ' + end + ' order by date asc;';
+        var query = 'select e.*, extract(epoch from e.date)*1000 as epoch_date, s.type, s.price from event e, service s where s.id = e.service_id and type = \'class\' and extract(epoch from date) between ' + start + ' and ' + end + ' order by date asc;';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
 
@@ -1058,7 +1058,7 @@ app.post('/api/sale', (req, res) => {
                 query = 'insert into sale(id, user_id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free, price)' +
                         ' values(' + saleID + ',' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
                         req.body.phone + '\',\'' + req.body.child_first_name + '\',\'' + req.body.child_last_name + '\',' + items[i].service_id + ',' +
-                        'to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\',' + (req.body.amount_due === 0 ? 0 : price) + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',' + price + ')';
+                        'to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\',' + (req.body.amount_due == 0 ? 0 : price) + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',' + price + ')';
                 console.log('QUERY: ' + query);
                 result = await DB_client.query(query);
                 sales.push(saleID);
@@ -1075,7 +1075,7 @@ app.post('/api/sale', (req, res) => {
                 query = 'insert into sale(id, user_id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free, price)' +
                         ' values(' + saleID + ',' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
                         req.body.phone + '\',\'' + req.body.child_first_name + '\',\'' + req.body.child_last_name + '\',' + items[i].service_id + ',' +
-                        'to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\',' + (req.body.amount_due === 0 ? 0 : price) + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',' + price + ')';
+                        'to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\',' + (req.body.amount_due == 0 ? 0 : price) + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',' + price + ')';
                 console.log('QUERY: ' + query);
                 result = await DB_client.query(query);
                 sales.push(saleID);
@@ -1296,7 +1296,7 @@ app.post('/api/register', (req, res) => {
                 to: req.body.email,
                 subject: 'Cosgrove Hockey Academy - Email Verification',
                 html: '<div id="container"><img src="https://i.ibb.co/7NR413V/logo-lg.png" width="600"/>' +
-                        '<h2 id="subtitle">Welcome to the academy ' + req.body.first_name + ' ' + req.body.surname +
+                        '<h2 id="subtitle">Welcome to the academy ' + req.body.first_name + ' ' + req.body.last_name +
                         '!</h2><p></p><p id="mainText">We\'re happy you\'ve decided to make an account with us. We just' +
                         ' need you to verify this email address by clicking the link below.</p><p></p><a id="link" href="' +
                         link + '">Verify Email</a><p></p><p>You will be asked to set a password for your account, this is ' +
@@ -1315,12 +1315,12 @@ app.post('/api/register', (req, res) => {
 });
 
 // End - API
-/*https.createServer({
+https.createServer({
     key: fs.readFileSync('server-key.pem'),
     cert: fs.readFileSync('server-cert.pem')
   }, app).listen(port, () => {
     console.log('Listening on port ' + port + '...');
-});*/
-app.listen(port, () => {
-    console.log('Listening on port ' + port + '...');
 });
+/*app.listen(port, () => {
+    console.log('Listening on port ' + port + '...');
+});*/
