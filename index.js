@@ -6,15 +6,16 @@ const hash = require('crypto-js');
 const nodemailer = require('nodemailer');
 const https = require('https');
 const fs = require('fs');
+const keys = require('./privateKeys');
 
 // Set your secret key. Remember to switch to your live secret key in production!
 // See your keys here: https://dashboard.stripe.com/account/apikeys
-const stripe = require('stripe')('sk_live_MlBsXWW4evfjX1lfDHzj5yHw00KO2pYomK');
+const stripe = require('stripe')(keys.STRIPE_API_KEY_LIVE);
 
 const app = express();
 
 const port = 5460;
-const secret_key = '65F1FAD3B9E2C35E1C297179A389AFA32A4B68907209ECC5E6F94479489F4258';
+const secret_key = keys.HASHING_KEY;
 var DB_client = new Client({
     host: '99.242.212.59',
     port: 5432,
@@ -1008,9 +1009,43 @@ app.get('/api/getTodayClasses', (req, res) => {
     })();
 });
 
+app.post('/api/checkAvailable', (req, res) => {
+    (async function() {
+        var query = '', result = null, fullEvents = [], items = JSON.parse(req.body.cart).items;
+        for (var i in items) {
+            if (items[i].type == 'open') {
+                query = 'select e.* from event e, service s where s.id = e.service_id and e.resource_id = s.resource_id and extract(epoch from e.date) between ' +
+                        items[i].epoch_date + ' and ' + (parseInt(items[i].epoch_date) + (60*60*parseFloat(items[i].duration) - 1));
+                result = await runQuery(query);
+                if (result.rowCount > 0) {
+                    // Open slot has become unavailable
+                    fullEvents.push(items[i]);
+                    items.splice(i);
+                }
+            } else if (items[i].type != 'nonevent') {
+                query = 'select e.* from event e, service s where s.id = e.service_id and e.resource_id = s.resource_id and extract(epoch from e.date) between ' +
+                        items[i].epoch_date + ' and ' + (parseInt(items[i].epoch_date) + (60*60*parseFloat(items[i].duration) - 1));
+                result = await runQuery(query);
+                if (result.rows[0].open_spots == 0) {
+                    // Class has become unavailable
+                    fullEvents.push(items[i]);
+                    items.splice(i);
+                }
+            }
+        }
+        res.send({ error: null, items: items, fullEvents: fullEvents });
+    })();
+});
+
+// Check class available
+async function isAvailable(item) {
+    var result = runQuery('select e.* form event e, service s where s.id = e.service_id and e.resource_id = s.resource_id and extract(epoch from e.date) between ' +
+                            item.epoch_date + ' and ' + (parseInt(item.epoch_date) + (60*60*parseFloat(item.duration) - 1)));
+    return result.rows[0].open_spots != 0;
+}
+
 app.post('/api/sale', (req, res) => {
     (async function() {
-        console.log(req.body.first_name);
         var items = JSON.parse(req.body.cart).items;
         var query = '', result = null;
         var ids = [], nonevents = [];
@@ -1039,14 +1074,11 @@ app.post('/api/sale', (req, res) => {
                 ids.push(items[i].id);
             }
         }
-        console.log(ids);
-        console.log(nonevents);
 
         // Add each item as a new sale, and store the sale id
         var sales = [], total = 0;
         var freeUsed = false;
         for (var i in items) {
-
             query = 'select max(id) as id from sale';
             result = await DB_client.query(query);
             var saleID = result.rows[0].id + 1;
@@ -1107,16 +1139,8 @@ app.post('/api/sale', (req, res) => {
                 }
             }
         }
-
-        if (!nonevent) {
-        // Generate a new basket
-        query = 'insert into basket(sales, items) values(\'{' + sales + '}\',\'{' + ids + '}\')';
-        console.log('QUERY: ' + query);
-        result = await DB_client.query(query);
-
         // Send the receipt email to the user and to the owner
         sendEmail(req.body.email, req.body.first_name, req.body.last_name, items);
-        }
 
         res.send({ error: null, total: total });
     })();
