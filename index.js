@@ -784,7 +784,7 @@ async function runQuery(query) {
 app.post('/api/clockEmployee', (req, res) => {
     (async function() {
         var payload = getPayload(req.body.token);
-        if (payload.id == 4) {
+        if (payload.id == 4 || payload.admin) {
             // Check if there is an employee associated with the card number given
             var result = await runQuery('select *, concat(first_name,\' \',last_name) as fullName, extract(epoch from clock_in_time)*1000 as timestamp from employee where card_id = ' + req.body.card);
             if (result.rowCount > 0) {
@@ -817,7 +817,7 @@ app.post('/api/clockEmployee', (req, res) => {
                             else
                                 console.log(info);
                                 (async function() {
-                                    var resetHours = await runQuery();
+                                    var resetHours = await runQuery('update employee set active = false, clock_in_time = null where card_id = ' + req.body.card);
                                     res.send({ error: null, status: 'Out', fullName: result.rows[0].fullname });
                                 })();
                         });
@@ -1142,7 +1142,7 @@ app.post('/api/sale', (req, res) => {
         // Send the receipt email to the user and to the owner
         sendEmail(req.body.email, req.body.first_name, req.body.last_name, items);
 
-        res.send({ error: null, total: total });
+        res.send({ error: null, total: total, fullEvents: [] });
     })();
 });
 
@@ -1339,10 +1339,12 @@ app.post('/api/register', (req, res) => {
 });
 
 // End - API
-https.createServer({
-    key: fs.readFileSync('server-key.pem'),
-    cert: fs.readFileSync('server-cert.pem')
-  }, app).listen(port, () => {
+var options = {
+	cert: fs.readFileSync('./ssl/cha-ca.crt'),
+	ca: fs.readFileSync('./ssl/cha.ca-bundle'),
+	key: fs.readFileSync('./ssl/cha.key')
+};
+https.createServer(options, app).listen(port, () => {
     console.log('Listening on port ' + port + '...');
 });
 /*app.listen(port, () => {
