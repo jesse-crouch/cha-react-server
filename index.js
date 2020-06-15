@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const hash = require('crypto-js');
 const nodemailer = require('nodemailer');
 const https = require('https');
+const http = require('http');
 const fs = require('fs');
 const keys = require('./privateKeys');
 
@@ -40,8 +41,15 @@ app.use(bodyParser.urlencoded({ extended: false }))
 app.use('*', (req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    var agent = req.headers['user-agent'];
+    if (agent.indexOf('Safari') > -1 && agent.indexOf('Chrome') == -1 && agent.indexOf('OPR') == -1) {
+       res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+       res.header('Pragma', 'no-cache');
+       res.header('Expires', 0);
+    }
     next();
 });
+app.disable('etag');
 
 // Start - API
 function time(date) {
@@ -1340,13 +1348,15 @@ app.post('/api/register', (req, res) => {
 
 // End - API
 var options = {
-	cert: fs.readFileSync('./ssl/cha-ca.crt'),
-	ca: fs.readFileSync('./ssl/cha.ca-bundle'),
-	key: fs.readFileSync('./ssl/cha.key')
+	cert: fs.readFileSync('./ssl/server-cert.crt'),
+	ca: fs.readFileSync('./ssl/server-ca.ca-bundle'),
+	key: fs.readFileSync('./ssl/server-key.key')
 };
 https.createServer(options, app).listen(port, () => {
     console.log('Listening on port ' + port + '...');
 });
-/*app.listen(port, () => {
-    console.log('Listening on port ' + port + '...');
-});*/
+/*http.createServer((req, res) => {
+	res.statusCode = 301;
+	res.setHeader('Location', 'https://cosgrovehockeyacademy.com:5480' + req.url);
+	res.end();
+}).listen(5470);*/
