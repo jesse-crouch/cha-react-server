@@ -14,6 +14,7 @@ const keys = require('./privateKeys');
 const stripe = require('stripe')(keys.STRIPE_API_KEY_LIVE);
 
 const app = express();
+const local = true;
 
 const port = 5460;
 const secret_key = keys.HASHING_KEY;
@@ -117,6 +118,20 @@ app.post('/api/updatePaidBooking', (req, res) => {
     (async function() {
         var query = 'update sale set amount_due = 0 where id = ' + req.body.id;
         var result = await DB_client.query(query);
+        res.send({ error: null });
+    })();
+});
+
+app.post('/api/updateMembership', (req, res) => {
+    (async function() {
+        var result = await runQuery('update users set membership = ' + req.body.membership + ', membership_expiry = to_timestamp(' + req.body.expiry + ') at time zone \'UTC\' where id = ' + req.body.id);
+        res.send({ error: null });
+    })();
+});
+
+app.post('/api/removeMembership', (req, res) => {
+    (async function() {
+        var result = await runQuery('update users set membership = null, membership_expiry = null where id = ' + req.body.id);
         res.send({ error: null });
     })();
 });
@@ -959,6 +974,8 @@ function generateToken(user) {
         first_name: user.first_name,
         last_name: user.last_name,
         membership: user.membership,
+        memberships: user.memberships,
+        children: user.children,
         admin: user.admin
     }, secret_key);
 }
@@ -972,6 +989,29 @@ app.post('/api/getClientSecret', (req, res) => {
             metadata: {integration_check: 'accept_a_payment'},
         });
         res.send({ clientSecret: paymentIntent.client_secret });
+    })();
+});
+
+app.post('/api/checkDiscount', (req, res) => {
+    (async function() {
+        var payload = jwt.verify(req.body.token, secret_key);
+
+        console.log(req.body.event);
+        if (payload.memberships[req.body.index-1] != null) {
+            // Get the child name
+            var childResult = await runQuery('select children[' + req.body.index + '] as child_name from users where id = ' + payload.id);
+            var childInfo = childResult.rows[0].child_name.split(' ');
+
+            // Check that a class wasn't booked on this day already with the child given
+            var result = await runQuery('select * from sale where email = \'' + payload.email + '\' and extract(epoch from date) = ' + req.body.eventDate + ' and free = true and child_first_name = \'' + childInfo[0] + '\' and child_last_name = \'' + childInfo[1] + '\'');
+            if (result.rowCount > 0) {
+                res.send({ error: null, discount: false });
+            } else {
+                res.send({ error: null, discount: true });
+            }
+        } else {
+            res.send({ error: null, discount: null });
+        }
     })();
 });
 
@@ -1160,6 +1200,11 @@ app.post('/api/getAllUsers', (req, res) => {
         if (payload.admin) {
             var query = 'select * from users order by id asc';
             var result = await DB_client.query(query);
+
+            for (var i in result.rows) {
+                var service = runQuery('select name, ')
+            }
+
             res.send({ users: result.rows });
         } else {
             res.sendStatus(403);
@@ -1255,6 +1300,7 @@ app.post('/api/verification', (req, res) => {
     (async function() {
         // Extract date from token and check if it is still valid
         var token = Buffer.from(req.body.token, 'base64').toString();
+        console.log('Buffer: ' + token);
         var payload = jwt.verify(token, secret_key);
         if ((Math.round(payload.date) + 60*30) > (new Date().getTime()/1000)) {
             res.send({ error: null });
@@ -1347,16 +1393,17 @@ app.post('/api/register', (req, res) => {
 });
 
 // End - API
-var options = {
-	cert: fs.readFileSync('./ssl/server-cert.crt'),
-	ca: fs.readFileSync('./ssl/server-ca.ca-bundle'),
-	key: fs.readFileSync('./ssl/server-key.key')
-};
-https.createServer(options, app).listen(port, () => {
-    console.log('Listening on port ' + port + '...');
-});
-/*http.createServer((req, res) => {
-	res.statusCode = 301;
-	res.setHeader('Location', 'https://cosgrovehockeyacademy.com:5480' + req.url);
-	res.end();
-}).listen(5470);*/
+if (local) {
+    app.listen(port, () => {
+        console.log('Listening locally on port ' + port + '...');
+    });
+} else {
+    var options = {
+        cert: fs.readFileSync('./ssl/server-cert.crt'),
+        ca: fs.readFileSync('./ssl/server-ca.ca-bundle'),
+        key: fs.readFileSync('./ssl/server-key.key')
+    };
+    https.createServer(options, app).listen(port, () => {
+        console.log('Listening globally on port ' + port + '...');
+    });
+}
