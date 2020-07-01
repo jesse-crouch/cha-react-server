@@ -9,6 +9,8 @@ const http = require('http');
 const fs = require('fs');
 const keys = require('./privateKeys');
 
+const local = true;
+
 // Set your secret key. Remember to switch to your live secret key in production!
 // See your keys here: https://dashboard.stripe.com/account/apikeys
 const stripe = require('stripe')(keys.STRIPE_API_KEY_LIVE);
@@ -180,24 +182,28 @@ app.get('/api/searchTodayBookings', (req, res) => {
 
 app.post('/api/getAllSales', (req, res) => {
     (async function() {
-        var payload = getPayload(req.body.token);
-        if (payload.admin) {
-            var query = 'select sale.id, initcap(concat(first_name,\' \',last_name)) as name, email, initcap(concat(child_first_name,\' \',child_last_name)) as child_name, s.id_chain, s.name as service_name, extract(epoch from date)*1000 as date, amount_due, round(sale.price::numeric*0.884956,2) as base_price, round(sale.price::numeric*0.115044,2) as tax, round(sale.price::numeric,2) as total from sale, service s where s.id = service_id order by date desc';
-            console.log('QUERY: ' + query);
-            var result = await DB_client.query(query);
+        if (req.body.token) {
+            var payload = getPayload(req.body.token);
+            if (payload.admin) {
+                var query = 'select sale.id, initcap(concat(first_name,\' \',last_name)) as name, email, initcap(concat(child_first_name,\' \',child_last_name)) as child_name, s.id_chain, s.name as service_name, extract(epoch from date)*1000 as date, amount_due, round(sale.price::numeric*0.884956,2) as base_price, round(sale.price::numeric*0.115044,2) as tax, round(sale.price::numeric,2) as total from sale, service s where s.id = service_id order by date desc';
+                console.log('QUERY: ' + query);
+                var result = await DB_client.query(query);
 
-            // Add service name to sales
-            /*for (var i in result.rows) {
-                var name = await getFullServiceName({
-                    id_chain: result.rows[i].id_chain,
-                    name: result.rows[i].service_name
-                });
-                result.rows[i].fullServiceName = name;
-            }*/
+                // Add service name to sales
+                /*for (var i in result.rows) {
+                    var name = await getFullServiceName({
+                        id_chain: result.rows[i].id_chain,
+                        name: result.rows[i].service_name
+                    });
+                    result.rows[i].fullServiceName = name;
+                }*/
 
-            res.send({ sales: result.rows });
+                res.send({ sales: result.rows });
+            } else {
+                res.send({ error: 'Only administrators can access this information' });
+            }
         } else {
-            res.sendStatus(403);
+            res.send({ error: 'Please log in to access this page' });
         }
     })();
 });
@@ -751,7 +757,7 @@ app.post('/api/getEmployees', (req, res) => {
 
             res.send({ employees: result.rows, instructors: iResult.rows });
         } else {
-            res.sendStatus(403);
+            res.send({ error: 'Only administrators can access this information' });
         }
     })();
 });
@@ -765,7 +771,7 @@ app.post('/api/deleteEmployee', (req, res) => {
             var result = await DB_client.query(query);
             res.send({ error: null });
         } else {
-            res.sendStatus(403);
+            res.send({ error: 'Only administrators can access this information' });
         }
     })();
 });
@@ -779,7 +785,7 @@ app.post('/api/deleteInstructor', (req, res) => {
             var result = await DB_client.query(query);
             res.send({ error: null });
         } else {
-            res.sendStatus(403);
+            res.send({ error: 'Only administrators can access this information' });
         }
     })();
 });
@@ -845,7 +851,7 @@ app.post('/api/clockEmployee', (req, res) => {
                 res.send({ error: null, status: 0 });
             }
         } else {
-            res.sendStatus(403);
+            res.send({ error: 'Only administrators can access this information' });
         }
     })();
 });
@@ -860,7 +866,7 @@ app.post('/api/addInstructor', (req, res) => {
             var result = await DB_client.query(query);
             res.send({ error: null });
         } else {
-            res.sendStatus(403);
+            res.send({ error: 'Only administrators can access this information' });
         }
     })();
 });
@@ -919,7 +925,7 @@ app.post('/api/unstageCart', (req, res) => {
             result = await DB_client.query(query);
             res.send({ error: null, total: result.rows[0].total });
         } else {
-            res.sendStatus(403);
+            res.send({ error: 'Only administrators can access this information' });
         }
     })();
 });
@@ -946,7 +952,7 @@ app.post('/api/newEmployee', (req, res) => {
             }
             res.send({ error: null });
         } else {
-            res.sendStatus(403);
+            res.send({ error: 'Only administrators can access this information' });
         }
     })();
 });
@@ -1154,6 +1160,31 @@ app.post('/api/sale', (req, res) => {
     })();
 });
 
+app.post('/api/getPendingSales', (req, res) => {
+    (async function() {
+        if (req.body.token) {
+            var payload = getPayload(req.body.token);
+            if (payload.admin) {
+                var date = new Date();
+                date.setHours(1,0,0,0);
+                var start_epoch = date.getTime()/1000;
+
+                var end = new Date();
+                end.setHours(23,0,0,0);
+                var end_epoch = end.getTime()/1000;
+
+                var query = 'select s.*, ss.name as service_name, extract(epoch from s.date) as epoch_date from sale s, service ss where ss.id = s.service_id and extract(epoch from s.date) between ' + start_epoch + ' and ' + end_epoch + ' and s.amount_due > 0 order by s.date asc';
+                var result = await runQuery(query);
+                res.send({ sales: result.rows });
+            } else {
+                res.send({ error: 'Only administrators can access this information' });
+            }
+        } else {
+            res.send({ error: 'Please log in to access this page' });
+        }
+    })();
+});
+
 app.post('/api/getAllUsers', (req, res) => {
     (async function() {
         var payload = getPayload(req.body.token);
@@ -1162,7 +1193,7 @@ app.post('/api/getAllUsers', (req, res) => {
             var result = await DB_client.query(query);
             res.send({ users: result.rows });
         } else {
-            res.sendStatus(403);
+            res.send({ error: 'Only administrators can access this information' });
         }
     })();
 });
@@ -1347,16 +1378,18 @@ app.post('/api/register', (req, res) => {
 });
 
 // End - API
-var options = {
-	cert: fs.readFileSync('./ssl/server-cert.crt'),
-	ca: fs.readFileSync('./ssl/server-ca.ca-bundle'),
-	key: fs.readFileSync('./ssl/server-key.key')
-};
-https.createServer(options, app).listen(port, () => {
-    console.log('Listening on port ' + port + '...');
-});
-/*http.createServer((req, res) => {
-	res.statusCode = 301;
-	res.setHeader('Location', 'https://cosgrovehockeyacademy.com:5480' + req.url);
-	res.end();
-}).listen(5470);*/
+
+if (!local) {
+    var options = {
+        cert: fs.readFileSync('./ssl/server-cert.crt'),
+        ca: fs.readFileSync('./ssl/server-ca.ca-bundle'),
+        key: fs.readFileSync('./ssl/server-key.key')
+    };
+    https.createServer(options, app).listen(port, () => {
+        console.log('Live - Listening on port ' + port + '...');
+    });
+} else {
+    http.createServer(app).listen(port, () => {
+        console.log('Local - Listeneing on port ' + port + '...');
+    });
+}
