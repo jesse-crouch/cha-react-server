@@ -9,7 +9,7 @@ const http = require('http');
 const fs = require('fs');
 const keys = require('./privateKeys');
 
-const local = true;
+const local = false;
 
 // Set your secret key. Remember to switch to your live secret key in production!
 // See your keys here: https://dashboard.stripe.com/account/apikeys
