@@ -9,7 +9,7 @@ const http = require('http');
 const fs = require('fs');
 const keys = require('./privateKeys');
 
-const local = true;
+const local = false;
 
 // Set your secret key. Remember to switch to your live secret key in production!
 // See your keys here: https://dashboard.stripe.com/account/apikeys
@@ -990,7 +990,7 @@ app.post('/api/checkMemberDiscount', (req, res) => {
         if (payload.membership != null) {
             if (payload.membership > 0) {
                 // Memberships have a free class booking per day.
-                //      Check that they have not booked anything on this date before.
+                //      Check that they have not booked anything on this date before with a discount.
                 var query = 'select * from sale where email = \'' + payload.email + '\' and extract(day from date) = ' +
                             new Date().getDate() + ' and extract(month from date) = ' + new Date().getMonth() +
                             ' and extract(year from date) = ' + new Date().getFullYear() + ' and free = true';
@@ -1000,7 +1000,20 @@ app.post('/api/checkMemberDiscount', (req, res) => {
                     // A free class is already booked on this day
                     res.send({ error: 'You are not eligble for a free booking, as you have booked a free class on this day already.', applyDiscount: false });
                 } else {
-                    res.send({ error: null, applyDiscount: true });
+                    // Members can book a maximum of 3 classes per week, so check this week for more than 3
+                    var startDate = new Date();
+                    startDate.setDate(startDate.getDate() - startDate.getDay());
+
+                    var endDate = new Date();
+                    endDate.setDate((endDate.getDate() - endDate.getDay()) + 6);
+
+                    var weekCheck = await runQuery('select * from sale where email = \'' + payload.email + '\' and extract(epoch from date) between ' + (startDate.getTime()/1000) + ' and ' + (enddate.getTime()/1000) + ' and free = true;');
+                    if (weekCheck.rowCount > 3) {
+                        // Maximum free classes per week exceeded
+                        res.send({ error: null, applyDiscount: false });
+                    } else {
+                        res.send({ error: null, applyDiscount: true });
+                    }
                 }
             } else {
                 res.send({ error: null, applyDiscount: false });
@@ -1129,6 +1142,19 @@ app.post('/api/sale', (req, res) => {
             }
         }
 
+        function determineExpiry(id) {
+            // Determine the membership expiry date
+            var expiry = new Date();
+            if (id == 1) {
+                expiry.setMonth(expiry.getMonth() + 1);
+            } else if (id == 2) {
+                expiry.setMonth(expiry.getMonth() + 6);
+            } else {
+                expiry.setMonth(expiry.getMonth() + 3);
+            }
+            return expiry.getTime()/1000;
+        }
+
         // Handle non-events
         var nonevent = false;
         for (var i in nonevents) {
@@ -1140,16 +1166,16 @@ app.post('/api/sale', (req, res) => {
                 var query = '';
                 if (payload.membership == nonevents[i].id) {
                     // User is cancelling membership
-                    console.log('cancel membership');
+                    var cancelResult = runQuery('update users set membership = null, membership_expiry = null where id = ' + payload.id);
                 } else if (payload.membership == 0) {
                     // User is joining with a new membership
-                    console.log('join ' + nonevents[i].id + ' membership');
+                    var joinResult = runQuery('update users set membership = ' + nonevents[i].id + ', membership_expiry = to_timestamp(' + determineExpiry(nonevents[i].id) + ') at time zone \'UTC\' where id = ' + payload.id);
                 } else if (payload.membership < nonevents[i].id) {
                     // User is upgrading membership
-                    console.log('upgrade to ' + nonevents[i].id + ' membership');
+                    var upgradeResult = runQuery('update users set membership = ' + nonevents[i].id + ', membership_expiry = to_timestamp(' + determineExpiry(nonevents[i].id) + ') at time zone \'UTC\' where id = ' + payload.id);
                 } else {
                     // User is downgrading membership
-                    console.log('downgrade to ' + nonevents[i].id + ' membership');
+                    var downgreadeResult = runQuery('update users set membership = ' + nonevents[i].id + ', membership_expiry = to_timestamp(' + determineExpiry(nonevents[i].id) + ') at time zone \'UTC\' where id = ' + payload.id);
                 }
             }
         }
@@ -1390,6 +1416,6 @@ if (!local) {
     });
 } else {
     http.createServer(app).listen(port, () => {
-        console.log('Local - Listeneing on port ' + port + '...');
+        console.log('Local - Listening on port ' + port + '...');
     });
 }
