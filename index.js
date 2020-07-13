@@ -20,20 +20,20 @@ const app = express();
 const port = 5460;
 const secret_key = keys.HASHING_KEY;
 var DB_client = new Client({
-    host: '99.242.212.59',
+    host: '99.243.122.242',
     port: 5432,
     database: 'CHA_Testing',
     user: 'postgres',
-    password: 'mplkO0'
+    password: keys.DB_PASS
 });
 async function reconnectDB() {
     await DB_client.end();
     DB_client = new Client({
-        host: '99.242.212.59',
+        host: '99.243.122.242',
         port: 5432,
         database: 'CHA_Testing',
         user: 'postgres',
-        password: 'mplkO0'
+        password: keys.DB_PASS
     });
     await DB_client.connect();
 }
@@ -87,6 +87,9 @@ app.get('/api/serverURL', (req, res) => {
 
 app.post('/api/deleteBooking', (req, res) => {
     (async function() {
+	var result = runQuery('delete from sale where id = ' + req.body.id);
+	res.send({ error: null });
+	/*
         // If the event occupied by this booking is open and has only 1 spot taken, delete the event as well.
         //      Otherwise, increment the open_spots of the event.
         var query = 'select e.id, e.open_spots, e.total_spots, e.service_id, s.id as sale_id, ss.type from event e, sale s, service ss' +
@@ -111,7 +114,7 @@ app.post('/api/deleteBooking', (req, res) => {
         console.log('QUERY: ' + query);
         result = await DB_client.query(query);
 
-        res.send({ error: null });
+        res.send({ error: null });*/
     })();
 });
 
@@ -630,6 +633,17 @@ var genRandomString = function(seed){
     return hash.SHA256(rand).toString(hash.enc.Hex).toUpperCase();
 };
 
+app.post('/api/checkVerified', (req, res) => {
+	(async function() {
+		var result = await runQuery('select first_name from users where email = \'' + req.body.email + '\'');
+		if (result.rowCount > 0) {
+			res.send({ verified: true });
+		} else {
+			res.send({ verified: false });
+		}
+	})();
+});
+
 app.post('/api/login', (req, res) => {
     (async function() {
         // Check that user exists
@@ -660,8 +674,16 @@ app.post('/api/login', (req, res) => {
                 res.send({ token: generateToken(user) });
             }
         } else {
+        	// For now, register every login attempt as a new user
+			var salt = hash.SHA256(hash.lib.WordArray.random(128 / 8)).toString(hash.enc.Hex).toUpperCase();
+			var pass = hash.SHA256(salt + req.body.pass).toString(hash.enc.Hex).toUpperCase();
+        	var newUserResult = await runQuery('insert into users(first_name, last_name, email, phone, salt, password, membership, token, membership_expiry, join_date, passchanged, subusers) values (\'' + req.body.first_name.toLowerCase() + '\', \'' + req.body.last_name.toLowerCase() + '\', \'' + req.body.email + '\', \'\', \'' + salt + '\', \'' + pass + '\', null, null, null, null, true, \'{}\')');
+        	
+        	var getUserResult = await runQuery('select * from users where email = \'' + req.body.email + '\'');
+        	res.send({ token: generateToken(getUserResult.rows[0]) });
+        
             // No user exists with that email
-            res.send({ error: 'No user exists with that email. Please try another email.' });
+            //res.send({ error: 'No user exists with that email. Please try another email.' });
         }
     })();
 });
