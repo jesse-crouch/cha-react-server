@@ -9,7 +9,7 @@ const http = require('http');
 const fs = require('fs');
 const keys = require('./privateKeys');
 
-const local = false;
+const local = true;
 
 // Set your secret key. Remember to switch to your live secret key in production!
 // See your keys here: https://dashboard.stripe.com/account/apikeys
@@ -87,9 +87,6 @@ app.get('/api/serverURL', (req, res) => {
 
 app.post('/api/deleteBooking', (req, res) => {
     (async function() {
-	var result = runQuery('delete from sale where id = ' + req.body.id);
-	res.send({ error: null });
-	/*
         // If the event occupied by this booking is open and has only 1 spot taken, delete the event as well.
         //      Otherwise, increment the open_spots of the event.
         var query = 'select e.id, e.open_spots, e.total_spots, e.service_id, s.id as sale_id, ss.type from event e, sale s, service ss' +
@@ -114,7 +111,7 @@ app.post('/api/deleteBooking', (req, res) => {
         console.log('QUERY: ' + query);
         result = await DB_client.query(query);
 
-        res.send({ error: null });*/
+        res.send({ error: null });
     })();
 });
 
@@ -224,11 +221,55 @@ app.get('/api/getAllServices', (req, res) => {
     })();
 });
 
+app.post('/api/getMembers', (req, res) => {
+    (async function() {
+        var userResult = await runQuery('select *, extract(epoch from expiry) as epoch_expiry from members where account_id = ' + req.body.id);
+        var memberResult = await runQuery('select name from membership');
+        for (var i in userResult.rows) {
+            if (userResult.rows[i].membership != null) {
+                userResult.rows[i].membership_name = memberResult.rows[userResult.rows[i].membership].name;
+            }
+        }
+        res.send({ error: null, members: userResult.rows });
+    })();
+});
+
 app.get('/api/getMemberships', (req, res) => {
     (async function() {
         var query = 'select * from membership order by id asc';
         var result = await DB_client.query(query);
         res.send({ memberships: result.rows });
+    })();
+});
+
+app.post('/api/addSubUser', (req, res) => {
+    (async function() {
+        var member = JSON.parse(req.body.member);
+        var result = await runQuery('insert into members (account_id, first_name, last_name) values (' + req.body.id + ',\'' + member.first_name + '\', \'' + member.last_name + '\')');
+        res.send({ error: null });
+    })();
+});
+
+app.post('/api/removeSubUser', (req, res) => {
+    (async function() {
+        var result = await runQuery('delete from members where id = ' + req.body.id);
+        res.send({ error: null });
+    })();
+});
+
+app.post('/api/addChild', (req, res) => {
+    (async function() {
+        var result = await runQuery('update users set children = array_cat(children, \'{{' + req.body.child + ', null, null}}\') where id = ' + req.body.id);
+        var userResult = await runQuery('select * from users where id = ' + req.body.id);
+        res.send({ error: null, token: generateToken(userResult.rows[0]) });
+    })();
+});
+
+app.post('/api/removeChild', (req, res) => {
+    (async function() {
+        var result = await runQuery('update users set children = array_remove(children, \'{{' + req.body.child + ', ' + req.body.child_membership + ', ' + req.body.child_expiry + '}}\') where id = ' + req.body.id);
+        var userResult = await runQuery('select * from users where id = ' + req.body.id);
+        res.send({ error: null, token: generateToken(userResult.rows[0]) });
     })();
 });
 
@@ -354,10 +395,19 @@ app.post('/api/getCalendarInfo', (req, res) => {
                 eventResult.rows[i].service = baseService;
             }
 
+            // Check for multi info
+            var multi_service_info = null;
+            var multiID = parseInt(req.body.multiID);
+            if (!isNaN(multiID)) {
+                var multiResult = await runQuery('select * from service where id = ' + multiID);
+                multi_service_info = multiResult.rows[0];
+            }
+
             res.send({
                 service_info: baseService,
                 events: eventResult.rows,
                 startDate: startDate.getTime(),
+                multi_service_info: multi_service_info,
                 largeEvents: (largeEventResult) ? largeEventResult.rows : null
             });
         }
@@ -530,7 +580,7 @@ app.post('/api/getScheduleEvents', (req, res) => {
             var serviceResult = await DB_client.query(query);
 
             query = 'select colour from service where id = ' + serviceResult.rows[0].id_chain[0];
-            serviceResult = await DB_client.query(query);
+            serviceResult = await runQuery(query);
             result.rows[i].colour = serviceResult.rows[0].colour;
         }
 
@@ -656,17 +706,6 @@ var genRandomString = function(seed){
     var rand = Math.random()*(seed^5) + 1;
     return hash.SHA256(rand).toString(hash.enc.Hex).toUpperCase();
 };
-
-app.post('/api/checkVerified', (req, res) => {
-	(async function() {
-		var result = await runQuery('select first_name from users where email = \'' + req.body.email + '\'');
-		if (result.rowCount > 0) {
-			res.send({ verified: true });
-		} else {
-			res.send({ verified: false });
-		}
-	})();
-});
 
 app.post('/api/login', (req, res) => {
     (async function() {
@@ -1011,7 +1050,9 @@ function generateToken(user) {
         first_name: user.first_name,
         last_name: user.last_name,
         membership: user.membership,
-        admin: user.admin
+        admin: user.admin,
+        memberships: user.memberships,
+        children: user.children
     }, secret_key);
 }
 
@@ -1223,6 +1264,26 @@ app.post('/api/sale', (req, res) => {
                     // User is downgrading membership
                     var downgreadeResult = runQuery('update users set membership = ' + nonevents[i].id + ', membership_expiry = to_timestamp(' + determineExpiry(nonevents[i].id) + ') at time zone \'UTC\' where id = ' + payload.id);
                 }
+            } else if (nonevents[i].eventType == 'multi') {
+                //console.log(nonevents[i]);
+                var bookings = JSON.parse(nonevents[i].bookings);
+
+                for (var j in bookings) {
+                    // Get resource ID
+                    var resourceResult = await runQuery('select resource_id from service where id = ' + bookings[j].service_id);
+                    var resourceID = resourceResult.rows[0].resource_id;
+
+                    if (bookings[j].type == 'open') {
+                        var newEventResult = await runQuery('insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration, resource_id) values ' +
+                            '(\'' + bookings[j].name + '\', ' + bookings[j].service_id + ',to_timestamp(' + bookings[j].epoch_date + ') at time zone \'UTC\', null, ' + (bookings[j].total_spots - 1) + ', ' + bookings[j].total_spots + ', ' + bookings[j].duration + ',' + resourceID + ')');
+                        // Get the newly inserted ID
+                        var newEventIDResult = await runQuery('select max(id) as id from event');
+                        bookings[j].id = newEventIDResult.rows[0].id;
+                    } else if (bookings[j].type == 'class') {
+                        // Decrement the open spots
+                        var decreaseSpotsResult = await runQuery('update event set open_spots = open_spots - 1 where id = ' + bookings[j].id);
+                    }
+                }
             }
         }
         // Send the receipt email to the user and to the owner
@@ -1299,14 +1360,17 @@ function sendEmail(email, first_name, last_name, items) {
             'width="600" class="CToWUd a6T" tabindex="0"><h2>Sale</h2><p>' + ownerMsg + '</p><table style="margin:0 auto"><thead><tr><th>Item</th><th>Date</th><th>Time</th><th>Price</th></tr></thead><tbody>';
 
     for (var i in items) {
-        var itemDate = new Date(items[i].epoch_date*1000);
-        items[i].date = dateString(itemDate);
-        var start = time(itemDate);
-        itemDate.setUTCMinutes(itemDate.getUTCMinutes() + (items[i].duration*60));
-        items[i].time = start + ' - ' + time(itemDate);
+        var _time = '';
+        if (items[i].type != 'nonevent') {
+            var itemDate = new Date(items[i].epoch_date*1000);
+            items[i].date = dateString(itemDate);
+            var start = time(itemDate);
+            itemDate.setUTCMinutes(itemDate.getUTCMinutes() + (items[i].duration*60));
+            _time = start + ' - ' + time(itemDate);
+        }
 
-        html += '<tr><td>' + items[i].name + '</td><td>' + itemDate.toLocaleDateString() + '</td><td>' + items[i].time + '</td><td>' + items[i].price + '</td></tr>';
-        ownerHtml += '<tr><td>' + items[i].name + '</td><td>' + itemDate.toLocaleDateString() + '</td><td>' + items[i].time + '</td><td>' + items[i].price + '</td></tr>';
+        html += '<tr><td>' + items[i].name + '</td><td>' + itemDate.toLocaleDateString() + '</td><td>' + _time + '</td><td>' + items[i].price + '</td></tr>';
+        ownerHtml += '<tr><td>' + items[i].name + '</td><td>' + itemDate.toLocaleDateString() + '</td><td>' + _time + '</td><td>' + items[i].price + '</td></tr>';
     }
     // Create a timestamp
     var today = new Date(toUTCTime(new Date().getTime()));
