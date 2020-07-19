@@ -20,7 +20,7 @@ const app = express();
 const port = 5460;
 const secret_key = keys.HASHING_KEY;
 var DB_client = new Client({
-    host: '99.243.122.242',
+    host: '3.22.227.109',
     port: 5432,
     database: 'CHA_Testing',
     user: 'postgres',
@@ -29,7 +29,7 @@ var DB_client = new Client({
 async function reconnectDB() {
     await DB_client.end();
     DB_client = new Client({
-        host: '99.243.122.242',
+        host: '3.22.227.109',
         port: 5432,
         database: 'CHA_Testing',
         user: 'postgres',
@@ -272,10 +272,27 @@ app.post('/api/getServices', (req, res) => {
 app.post('/api/getCalendarInfo', (req, res) => {
     (async function() {
         async function findFirst(currentDate) {
+		var date = new Date(currentDate.getTime());
+		date.setDate(date.getDate() - date.getDay());
+		date.setHours(5,0,0,0);
+		var start = date.getTime();
+		date.setDate(date.getDate() + 7);
+		var end = date.getTime();
+		var query = 'select e.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.last_name) as instructor_name, s.duration as serviceDuration, s.price, s.type from event e, instructor i, service s where service_id = ' + req.body.id + ' and s.id = ' + req.body.id + ' and i.id = s.instructor and (extract(epoch from date)*1000) between ' + start + ' and ' + end + ' order by date asc';
+		var result = await DB_client.query(query);
+
+		if (result.rowCount > 0) {
+			return { start: start, events: result.rows };
+		} else {
+			date.setDate(date.getDate() + 7);
+			return findFirst(date);
+		}
+/*
             currentDate.setHours(0,0,0,0);
             const start = currentDate.getTime();
             currentDate.setDate(currentDate.getDate() + (6-currentDate.getDay()));
             currentDate.setHours(23,59,0,0);
+	console.log(start);
             const end = currentDate.getTime();
 
             var query = 'select e.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.last_name) as instructor_name, s.duration as serviceDuration, s.price, s.type from event e, instructor i, service s where service_id = ' + req.body.id + ' and s.id = ' + req.body.id + ' and i.id = s.instructor and (extract(epoch from date)*1000) between ' + start + ' and ' + end + ' order by date asc';
@@ -292,7 +309,7 @@ app.post('/api/getCalendarInfo', (req, res) => {
                     start: start,
                     events: result.rows
                 } : findFirst(currentDate);
-            }
+            }*/
         }
 
         // Need to compile service info
@@ -310,6 +327,7 @@ app.post('/api/getCalendarInfo', (req, res) => {
 
         if (baseService.type == 'class') {
             var first = await findFirst(startDate);
+		console.log(first);
             if (first != null) {
                 res.send({
                     service_info: baseService,
@@ -357,9 +375,15 @@ app.post('/api/getEventManagerEvents', (req, res) => {
         // Find the service ancestor for colour coding
         for (var i in result.rows) {
             query = 'select name, id_chain from service where id = ' + result.rows[i].service_id;
+console.log(query);
             var serviceResult = await DB_client.query(query);
 
-            query = 'select colour from service where id = ' + serviceResult.rows[0].id_chain[0];
+	    if (serviceResult.rows[0].id_chain == undefined) {
+		query = 'select colour from service where id = ' + result.rows[i].service_id;
+	    } else {
+	            query = 'select colour from service where id = ' + serviceResult.rows[0].id_chain[0];
+	    }
+console.log(query);
             serviceResult = await DB_client.query(query);
             result.rows[i].colour = serviceResult.rows[0].colour;
         }
@@ -572,7 +596,7 @@ app.post('/api/deleteEvents', (req, res) => {
 app.get('/api/getSelectData', (req, res) => {
     (async function() {
         // Get services
-        var query = 'select * from service where type = \'class\' and id_chain is not null order by id asc';
+        var query = 'select * from service where type = \'class\' order by id asc';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
         /*for (var i in result.rows) result.rows[i].fullServiceName = await getFullServiceName(result.rows[i]);*/
@@ -837,7 +861,7 @@ app.post('/api/clockEmployee', (req, res) => {
                             service: 'gmail',
                             auth: {
                                 user: 'noreply.cosgrovehockey@gmail.com',
-                                pass: 'mplkO0935'
+                                pass: 'alfj%34dVOp'
                             }
                         });
                         var mailOptions = {
@@ -1295,7 +1319,7 @@ function sendEmail(email, first_name, last_name, items) {
       service: 'gmail',
       auth: {
           user: 'noreply.cosgrovehockey@gmail.com',
-          pass: 'mplkO0935'
+          pass: 'alfj%34dVOp'
       }
     });
 
