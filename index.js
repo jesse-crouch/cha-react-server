@@ -9,7 +9,7 @@ const http = require('http');
 const fs = require('fs');
 const keys = require('./privateKeys');
 
-const local = true;
+const local = false;
 
 // Set your secret key. Remember to switch to your live secret key in production!
 // See your keys here: https://dashboard.stripe.com/account/apikeys
@@ -1418,6 +1418,55 @@ app.post('/api/finishRegistration', (req, res) => {
 
         var finish = runQuery('update users set token = null, password = \'' + pass + '\', salt = \'' + salt + '\', join_date = to_timestamp(' + (new Date().getTime()/1000) + ') at time zone \'UTC\' where id = ' + payload.id);
         res.send({ error: null });
+    })();
+});
+
+app.post('/api/resetPassword', (req, res) => {
+    // For the 'I'm dummy and forgot my password' users
+    (async function() {
+            //var insertUser = await runQuery('insert into users(first_name, last_name, email, phone, salt, password, membership, token, membership_expiry, join_date, passchanged) values (\'' + req.body.first_name.toLowerCase() + '\', \'' + req.body.last_name.toLowerCase() + '\', \'' + req.body.email + '\', \'' + req.body.phone + '\', 0, 0, null, null, null, null, true)');
+            var getID = await runQuery('select id from users where email = \'' + req.body.email + '\'');
+            // Create a verification token
+            var webToken = jwt.sign({
+                id: getID.rows[0].id,
+                date: new Date().getTime()/1000
+            }, secret_key);
+            var token = Buffer.from(webToken).toString('base64');
+
+            // Set the token in the DB and send the verification email
+            var setToken = await runQuery('update users set token = \'' + token + '\', salt = null, password = null where id = ' + getID.rows[0].id);
+            var link = 'https://cosgrovehockeyacademy.com/verification?t=' + token;
+                            
+            // Gmail transporter setup
+            var transporter = nodemailer.createTransport({
+                service: 'gmail',
+                auth: {
+                    user: 'noreply.cosgrovehockey@gmail.com',
+                    pass: 'alfj%34dVOp'
+                }
+            });
+
+            // Create a timestamp
+            var today = new Date();
+            var timestamp = 'Sent on ' + dateString(today) + ' at ' + time(today);
+
+            // What to send to the new user
+            var mailOptions = {
+                from: 'noreply.cosgrovehockey@gmail.com',
+                to: req.body.email,
+                subject: 'Cosgrove Hockey Academy - Email Verification',
+                html: '<div id="container"><img src="https://i.ibb.co/7NR413V/logo-lg.png" width="600"/>' +
+                        '<h2 id="subtitle">Password Reset</h2><p></p><p id="mainText">You can reset your password by clicking the link below.</p><p></p><a id="link" href="' +
+                        link + '">Reset Password</a><p></p><small>' +
+                        timestamp + '</small></div>'
+            };
+            // Send the email
+            transporter.sendMail(mailOptions, function (err, info) {
+                if(err)
+                    console.log(err)
+                else
+                    res.send({ error: null });
+            });
     })();
 });
 
