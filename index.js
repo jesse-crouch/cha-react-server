@@ -997,6 +997,21 @@ app.get('/api/updateStaging', (req, res) => {
     })();
 });
 
+app.post('/api/checkVerified', (req, res) => {
+    (async function() {
+        var userExists = await runQuery('select * from users where email = \'' + req.body.email + '\'');
+        if (userExists.rowCount > 0) {
+            if (userExists.rows[0].last_name == null) {
+                res.send({ error: null, verified: false });
+            } else {
+                res.send({ error: null, verified: true });
+            }
+        } else {
+            res.send({ error: null, verified: false });
+        }
+    })();
+});
+
 app.get('/api/checkStaging', (req, res) => {
     (async function() {
         var query = 'select active from staging where id = 1';
