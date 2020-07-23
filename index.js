@@ -87,31 +87,40 @@ app.get('/api/serverURL', (req, res) => {
 
 app.post('/api/deleteBooking', (req, res) => {
     (async function() {
-        // If the event occupied by this booking is open and has only 1 spot taken, delete the event as well.
-        //      Otherwise, increment the open_spots of the event.
-        var query = 'select e.id, e.open_spots, e.total_spots, e.service_id, s.id as sale_id, ss.type from event e, sale s, service ss' +
-                    ' where s.id = ' + req.body.id + ' and e.id = s.event_id and ss.id = e.service_id';
-        console.log('QUERY: ' + query);
-        var result = await DB_client.query(query);
-
-        if (result.rows[0].type == 'open' && result.rows[0].open_spots == (result.rows[0].total_spots - 1)) {
-            // Remove the event
-            query = 'delete from event where id = ' + result.rows[0].id;
+        // Check if the event exists
+        var eventTest = await runQuery('select e.id from event e, sale s where s.id = ' + req.body.id + ' and e.id = s.event_id');
+        if (eventTest.rowCount > 0) {
+            // If the event occupied by this booking is open and has only 1 spot taken, delete the event as well.
+            //      Otherwise, increment the open_spots of the event.
+            var query = 'select e.id, e.open_spots, e.total_spots, e.service_id, s.id as sale_id, ss.type from event e, sale s, service ss' +
+                        ' where s.id = ' + req.body.id + ' and e.id = s.event_id and ss.id = e.service_id';
             console.log('QUERY: ' + query);
-            var deleteResult = await DB_client.query(query);
+            var result = await DB_client.query(query);
+
+            if (result.rows[0].type == 'open' && result.rows[0].open_spots == (result.rows[0].total_spots - 1)) {
+                // Remove the event
+                query = 'delete from event where id = ' + result.rows[0].id;
+                console.log('QUERY: ' + query);
+                var deleteResult = await DB_client.query(query);
+            } else {
+                // Increment the open spots
+                query = 'update event set open_spots = (open_spots + 1) where id = ' + result.rows[0].id;
+                console.log('QUERY: ' + query);
+                var decrementResult = await DB_client.query(query);
+            }
+
+            // Delete the sale
+            query = 'delete from sale where id = ' + req.body.id;
+            console.log('QUERY: ' + query);
+            result = await DB_client.query(query);
+
+            res.send({ error: null });
         } else {
-            // Increment the open spots
-            query = 'update event set open_spots = (open_spots + 1) where id = ' + result.rows[0].id;
-            console.log('QUERY: ' + query);
-            var decrementResult = await DB_client.query(query);
+            // Event no longer exists, just delete the sale
+            var deleteResult = await runQuery('delete from sale where id = ' + req.body.id);
+
+            res.send({ error: null });
         }
-
-        // Delete the sale
-        query = 'delete from sale where id = ' + req.body.id;
-        console.log('QUERY: ' + query);
-        result = await DB_client.query(query);
-
-        res.send({ error: null });
     })();
 });
 
@@ -1535,7 +1544,7 @@ app.post('/api/register', (req, res) => {
                 service: 'gmail',
                 auth: {
                     user: 'noreply.cosgrovehockey@gmail.com',
-                    pass: 'mplkO0935'
+                    pass: 'alfj%34dVOp'
                 }
             });
 
