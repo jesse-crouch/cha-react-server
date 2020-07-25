@@ -380,7 +380,7 @@ app.post('/api/getCalendarInfo', (req, res) => {
         // If this is a class, determine the first instance
         var startDate = new Date(req.body.date*1000);
         startDate.setDate(startDate.getDate() - startDate.getDay());
-        startDate.setHours(0,0,0,0);
+        startDate.setHours(5,0,0,0);
 
         if (baseService.type == 'class') {
             var first = await findFirst(startDate);
