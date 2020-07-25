@@ -124,6 +124,13 @@ app.post('/api/deleteBooking', (req, res) => {
     })();
 });
 
+app.post('/api/getEventsAdmin', (req, res) => {
+    (async function() {
+        var result = await runQuery('select name, extract(epoch from date) as epoch_date from event where extract(epoch from date) between ' + req.body.startDate + ' and ' + req.body.endDate);
+        res.send({ error: null, events: result.rows });
+    })();
+});
+
 app.post('/api/updatePaidBooking', (req, res) => {
     (async function() {
         var query = 'update sale set amount_due = 0 where id = ' + req.body.id;
@@ -377,12 +384,20 @@ app.post('/api/getCalendarInfo', (req, res) => {
 
         if (baseService.type == 'class') {
             var first = await findFirst(startDate);
-		console.log(first);
             if (first != null) {
+                // Check for multi info
+                var multi_service_info = null;
+                var multiID = parseInt(req.body.multiID);
+                if (!isNaN(multiID)) {
+                    var multiResult = await runQuery('select * from service where id = ' + multiID);
+                    multi_service_info = multiResult.rows[0];
+                }
+
                 res.send({
                     service_info: baseService,
                     events: first.events,
-                    startDate: first.start
+                    startDate: first.start,
+                    multi_service_info: multi_service_info
                 });
             } else {
                 res.send({ error: 'There are no scheduled events for the next 3 months.' });
