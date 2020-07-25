@@ -442,12 +442,12 @@ app.post('/api/getEventManagerEvents', (req, res) => {
     (async function() {
 	var endDate = new Date(parseInt(req.body.date) + (1000*60*60*24*6));
 	endDate.setHours(23,0,0,0);
-        var query = 'select e.*, extract(epoch from date) as epoch_date, s.type, s.duration as serviceDuration, s.price, concat(i.first_name, \' \', i.last_name) as instructor_name, s.type from event e, service s, instructor i where s.id = e.service_id and s.type = \'class\' and i.id = s.instructor and extract(epoch from date)*1000 between ' + req.body.date + ' and ' + endDate.getTime() + ' order by date asc';
+        var query = 'select e.*, extract(epoch from date) as epoch_date, s.colour, s.type, s.duration as serviceDuration, s.price, concat(i.first_name, \' \', i.last_name) as instructor_name, s.type from event e, service s, instructor i where s.id = e.service_id and s.type = \'class\' and i.id = s.instructor and extract(epoch from date)*1000 between ' + req.body.date + ' and ' + endDate.getTime() + ' order by date asc';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
 
         // Find the service ancestor for colour coding
-        for (var i in result.rows) {
+        /*for (var i in result.rows) {
             query = 'select name, id_chain from service where id = ' + result.rows[i].service_id;
 console.log(query);
             var serviceResult = await DB_client.query(query);
@@ -460,7 +460,7 @@ console.log(query);
 console.log(query);
             serviceResult = await DB_client.query(query);
             result.rows[i].colour = serviceResult.rows[0].colour;
-        }
+        }*/
 
         res.send({
             events: result.rows
@@ -594,19 +594,21 @@ app.post('/api/addEvent', (req, res) => {
 app.post('/api/getScheduleEvents', (req, res) => {
     (async function() {
         var start = req.body.date/1000, end = (parseInt(req.body.date) + (1000*60*60*24*7))/1000;
-        var query = 'select e.*, extract(epoch from e.date)*1000 as epoch_date, s.type, s.price from event e, service s where s.id = e.service_id and type = \'class\' and extract(epoch from date) between ' + start + ' and ' + end + ' order by date asc;';
+        var query = 'select e.*, extract(epoch from e.date)*1000 as epoch_date, s.type, s.colour, s.price from event e, service s where s.id = e.service_id and type = \'class\' and extract(epoch from date) between ' + start + ' and ' + end + ' order by date asc;';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
 
         // Find the service ancestor for colour coding
-        for (var i in result.rows) {
+        /*for (var i in result.rows) {
             query = 'select name, id_chain from service where id = ' + result.rows[i].service_id;
-            var serviceResult = await DB_client.query(query);
+            var serviceResult = await runQuery(query);
 
-            query = 'select colour from service where id = ' + serviceResult.rows[0].id_chain[0];
-            serviceResult = await runQuery(query);
+            if (serviceResult.rows[0].id_chain != null) {
+                query = 'select colour from service where id = ' + serviceResult.rows[0].id_chain[0];
+                serviceResult = await runQuery(query);
+            }
             result.rows[i].colour = serviceResult.rows[0].colour;
-        }
+        }*/
 
         res.send({ events: result.rows });
     })();
