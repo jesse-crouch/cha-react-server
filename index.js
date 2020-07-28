@@ -1178,7 +1178,7 @@ app.post('/api/checkAvailable', (req, res) => {
                     items.splice(i);
                 }
             } else if (items[i].type != 'nonevent') {
-                query = 'select e.* from event e, service s where s.id = e.service_id and e.resource_id = s.resource_id and extract(epoch from e.date) between ' +
+                query = 'select e.* from event e, service s where s.id = e.service_id and e.resource_id = s.resource_id and e.resource_id = ' + items[i].resource_id + ' and extract(epoch from e.date) between ' +
                         items[i].epoch_date + ' and ' + (parseInt(items[i].epoch_date) + (60*60*parseFloat(items[i].duration) - 1));
                 result = await runQuery(query);
                 if (result.rows[0].open_spots == 0) {
