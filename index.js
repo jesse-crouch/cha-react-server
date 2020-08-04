@@ -9,7 +9,7 @@ const http = require('http');
 const fs = require('fs');
 const keys = require('./privateKeys');
 
-const local = false;
+const local = true;
 
 // Set your secret key. Remember to switch to your live secret key in production!
 // See your keys here: https://dashboard.stripe.com/account/apikeys
@@ -926,7 +926,7 @@ app.post('/api/clockEmployee', (req, res) => {
                             service: 'gmail',
                             auth: {
                                 user: 'noreply.cosgrovehockey@gmail.com',
-                                pass: 'alfj%34dVOp'
+                                pass: 'eT%#24cBYmplkO0#'
                             }
                         });
                         var mailOptions = {
@@ -1135,7 +1135,7 @@ app.post('/api/checkMemberDiscount', (req, res) => {
                     var endDate = new Date();
                     endDate.setDate((endDate.getDate() - endDate.getDay()) + 6);
 
-                    var weekCheck = await runQuery('select * from sale where email = \'' + payload.email + '\' and extract(epoch from date) between ' + (startDate.getTime()/1000) + ' and ' + (enddate.getTime()/1000) + ' and free = true;');
+                    var weekCheck = await runQuery('select * from sale where email = \'' + payload.email + '\' and extract(epoch from date) between ' + (startDate.getTime()/1000) + ' and ' + (endDate.getTime()/1000) + ' and free = true;');
                     if (weekCheck.rowCount > 3) {
                         // Maximum free classes per week exceeded
                         res.send({ error: null, applyDiscount: false });
@@ -1204,6 +1204,7 @@ app.post('/api/sale', (req, res) => {
         var items = JSON.parse(req.body.cart).items;
         var query = '', result = null;
         var ids = [], nonevents = [];
+        var newToken = false;
 
         // Loop through items, creating events for non classes
         for (var i in items) {
@@ -1287,6 +1288,7 @@ app.post('/api/sale', (req, res) => {
         var nonevent = false;
         for (var i in nonevents) {
             if (nonevents[i].eventType == 'membership') {
+                newToken = true;
                 nonevent = true;
                 // Handle purchasing of new membership
                 // Get current user membership level
@@ -1330,7 +1332,14 @@ app.post('/api/sale', (req, res) => {
         // Send the receipt email to the user and to the owner
         sendEmail(req.body.email, req.body.first_name, req.body.last_name, items);
 
-        res.send({ error: null, total: total, fullEvents: [] });
+        var token = null;
+        if (newToken) {
+            // Get User ID
+            var idResult = await runQuery('select * from users where email = \'' + req.body.email + '\'');
+            token = generateToken(idResult.rows[0]);
+        }
+
+        res.send({ error: null, total: total, fullEvents: [], token: token });
     })();
 });
 
@@ -1402,16 +1411,19 @@ function sendEmail(email, first_name, last_name, items) {
 
     for (var i in items) {
         var _time = '';
+        var _date = '';
         if (items[i].type != 'nonevent') {
             var itemDate = new Date(items[i].epoch_date*1000);
             items[i].date = dateString(itemDate);
             var start = time(itemDate);
             itemDate.setUTCMinutes(itemDate.getUTCMinutes() + (items[i].duration*60));
             _time = start + ' - ' + time(itemDate);
+
+            _date = itemDate.toLocaleDateString();
         }
 
-        html += '<tr><td>' + items[i].name + '</td><td>' + itemDate.toLocaleDateString() + '</td><td>' + _time + '</td><td>' + items[i].price + '</td></tr>';
-        ownerHtml += '<tr><td>' + items[i].name + '</td><td>' + itemDate.toLocaleDateString() + '</td><td>' + _time + '</td><td>' + items[i].price + '</td></tr>';
+        html += '<tr><td>' + items[i].name + '</td><td>' + _date + '</td><td>' + _time + '</td><td>' + items[i].price + '</td></tr>';
+        ownerHtml += '<tr><td>' + items[i].name + '</td><td>' + _date + '</td><td>' + _time + '</td><td>' + items[i].price + '</td></tr>';
     }
     // Create a timestamp
     var today = new Date(toUTCTime(new Date().getTime()));
@@ -1424,7 +1436,7 @@ function sendEmail(email, first_name, last_name, items) {
       service: 'gmail',
       auth: {
           user: 'noreply.cosgrovehockey@gmail.com',
-          pass: 'alfj%34dVOp'
+          pass: 'eT%#24cBYmplkO0#'
       }
     });
 
@@ -1509,7 +1521,7 @@ app.post('/api/resetPassword', (req, res) => {
                     service: 'gmail',
                     auth: {
                         user: 'noreply.cosgrovehockey@gmail.com',
-                        pass: 'alfj%34dVOp'
+                        pass: 'eT%#24cBYmplkO0#'
                     }
                 });
 
@@ -1576,7 +1588,7 @@ app.post('/api/register', (req, res) => {
                 service: 'gmail',
                 auth: {
                     user: 'noreply.cosgrovehockey@gmail.com',
-                    pass: 'alfj%34dVOp'
+                    pass: 'eT%#24cBYmplkO0#'
                 }
             });
 
