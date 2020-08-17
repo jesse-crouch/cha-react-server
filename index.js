@@ -85,6 +85,18 @@ app.get('/api/serverURL', (req, res) => {
     res.send({ server: 'http://localhost:3500' });
 });
 
+app.post('/api/setMembershipExpiry', (req, res) => {
+    (async () => {
+        var update = await runQuery('update users set membership_expiry = to_timestamp(' + req.body.expiry + ') at time zone \'UTC\' where id = ' + req.body.id);
+        res.send({ error: null });
+    })().catch(err => {
+        setImmediate(() => {
+            console.log(err);
+            res.send({ error: 'Something went wrong, please try again' });
+        });
+    });
+});
+
 app.post('/api/deleteBooking', (req, res) => {
     (async function() {
         // Check if the event exists
