@@ -1246,6 +1246,12 @@ app.post('/api/sale', (req, res) => {
                 // Add to sale
                 var price = (parseFloat(items[i].price.split('/')[0])*1.13).toFixed(2);
                 total += price;
+
+		var names = [req.body.first_name, req.body.last_name];
+		/*if (names[0].includes('\'') || names[1].includes('\'')) {
+			names[0].indexOf('\''
+		}*/
+
                 query = 'insert into sale(id, user_id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free, price)' +
                         ' values(' + saleID + ',' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
                         req.body.phone + '\',\'' + req.body.child_first_name + '\',\'' + req.body.child_last_name + '\',' + items[i].service_id + ',' +
