@@ -97,6 +97,20 @@ app.post('/api/setMembershipExpiry', (req, res) => {
     });
 });
 
+app.post('/api/changeMembership', (req, res) => {
+    (async () => {
+        var membership = 'null';
+        if (req.body.membership > 0) membership = req.body.membership;
+        var update = await runQuery('update users set membership = ' + req.body.membership + ' where id = ' + req.body.id);
+        res.send({ error: null });
+    })().catch(err => {
+        setImmediate(() => {
+            console.log(err);
+            res.send({ error: 'Something went wrong, please try again' });
+        });
+    });
+});
+
 app.post('/api/deleteBooking', (req, res) => {
     (async function() {
         // Check if the event exists
