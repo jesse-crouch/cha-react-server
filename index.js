@@ -100,8 +100,22 @@ app.post('/api/setMembershipExpiry', (req, res) => {
 app.post('/api/changeMembership', (req, res) => {
     (async () => {
         var membership = 'null';
-        if (req.body.membership > 0) membership = req.body.membership;
-        var update = await runQuery('update users set membership = ' + req.body.membership + ' where id = ' + req.body.id);
+        var expiry = ' ';
+        if (req.body.membership > 0) {
+            membership = req.body.membership;
+            var date = new Date();
+            if (req.body.membership == 1) {
+                date.setMonth(date.getMonth() + 1);
+            } else if (req.body.membership == 1) {
+                date.setMonth(date.getMonth() + 6);
+            } else {
+                date.setMonth(date.getMonth() + 12);
+            }
+            expiry = ', membership_expiry = to_timestamp(' + date.getTime()/1000 + ') at time zone \'UTC\' ';
+            var update = await runQuery('update users set membership = ' + req.body.membership + expiry + 'where id = ' + req.body.id);
+        } else {
+            var update = await runQuery('update users set membership = null, membership_expiry = null where id = ' + req.body.id);
+        }
         res.send({ error: null });
     })().catch(err => {
         setImmediate(() => {
