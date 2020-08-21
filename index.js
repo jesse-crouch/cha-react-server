@@ -366,47 +366,56 @@ app.post('/api/getServices', (req, res) => {
     })();
 });
 
+app.post('/api/blockTime', (req, res) => {
+    (async () => {
+        var newBlock = await runQuery('insert into blocked_event (date, duration) values (to_timestamp(' + req.body.date + ') at time zone \'UTC\', ' + req.body.duration + ')');
+        res.send({ error: null });
+    })().catch(err => {
+        setImmediate(() => {
+            console.log(err);
+            res.send({ error: 'Something went wrong' });
+        });
+    });
+});
+
 app.post('/api/getCalendarInfo', (req, res) => {
     (async function() {
         async function findFirst(currentDate) {
-		var date = new Date(currentDate.getTime());
-		date.setDate(date.getDate() - date.getDay());
-		date.setHours(5,0,0,0);
-		var start = date.getTime();
-		date.setDate(date.getDate() + 7);
-		var end = date.getTime();
-		var query = 'select e.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.last_name) as instructor_name, s.duration as serviceDuration, s.price, s.type from event e, instructor i, service s where service_id = ' + req.body.id + ' and s.id = ' + req.body.id + ' and i.id = s.instructor and (extract(epoch from date)*1000) between ' + start + ' and ' + end + ' order by date asc';
-		var result = await DB_client.query(query);
-
-		if (result.rowCount > 0) {
-			return { start: start, events: result.rows };
-		} else {
-			date.setDate(date.getDate() + 7);
-			return findFirst(date);
-		}
-/*
-            currentDate.setHours(0,0,0,0);
-            const start = currentDate.getTime();
-            currentDate.setDate(currentDate.getDate() + (6-currentDate.getDay()));
-            currentDate.setHours(23,59,0,0);
-	console.log(start);
-            const end = currentDate.getTime();
-
+            var date = new Date(currentDate.getTime());
+            date.setDate(date.getDate() - date.getDay());
+            date.setHours(5,0,0,0);
+            var start = date.getTime();
+            date.setDate(date.getDate() + 7);
+            var end = date.getTime();
             var query = 'select e.*, extract(epoch from date) as epoch_date, concat(i.first_name, \' \', i.last_name) as instructor_name, s.duration as serviceDuration, s.price, s.type from event e, instructor i, service s where service_id = ' + req.body.id + ' and s.id = ' + req.body.id + ' and i.id = s.instructor and (extract(epoch from date)*1000) between ' + start + ' and ' + end + ' order by date asc';
-            console.log('QUERY: ' + query);
-            const result = await DB_client.query(query);
-            currentDate.setHours(currentDate.getHours() + 1);
-            var actualDate = new Date();
-            actualDate.setDate(actualDate.getDate() + 90);
-            if (currentDate.getTime() > actualDate.getTime()) {
-                // No events for 3 months
-                return null;
+            var result = await DB_client.query(query);
+
+            if (result.rowCount > 0) {
+                return { start: start, events: result.rows };
             } else {
-                return (result.rowCount > 0) ? {
-                    start: start,
-                    events: result.rows
-                } : findFirst(currentDate);
-            }*/
+                date.setDate(date.getDate() + 7);
+                return findFirst(date);
+            }
+        }
+
+        // Check for blocked days
+        var start = new Date(req.body.date*1000);
+        start.setDate(start.getDate() - start.getDay());
+        start.setHours(5,0,0,0);
+        var end = new Date(start.getTime());
+        end.setDate(end.getDate() + 7);
+        end.setHours(23,0,0,0);
+
+        var blocked_days = [], blocked_times = [];
+        var blockedResult = await runQuery('select extract(epoch from date)*1000 as epoch_date, duration from blocked_event where extract(epoch from date) between ' + start.getTime()/1000 + ' and ' + end.getTime()/1000);
+        if (blockedResult.rowCount > 0) {
+            for (var i in blockedResult.rows) {
+                if (blockedResult.rows[i].duration == 100) {
+                    blocked_days.push(blockedResult.rows[i]);
+                } else {
+                    blocked_times.push(blockedResult.rows[i]);
+                }
+            }
         }
 
         // Need to compile service info
@@ -437,7 +446,9 @@ app.post('/api/getCalendarInfo', (req, res) => {
                     service_info: baseService,
                     events: first.events,
                     startDate: first.start,
-                    multi_service_info: multi_service_info
+                    multi_service_info: multi_service_info,
+                    blocked_days: blocked_days,
+                    blocked_times: blocked_times
                 });
             } else {
                 res.send({ error: 'There are no scheduled events for the next 3 months.' });
@@ -472,7 +483,9 @@ app.post('/api/getCalendarInfo', (req, res) => {
                 events: eventResult.rows,
                 startDate: startDate.getTime(),
                 multi_service_info: multi_service_info,
-                largeEvents: (largeEventResult) ? largeEventResult.rows : null
+                largeEvents: (largeEventResult) ? largeEventResult.rows : null,
+                blocked_days: blocked_days,
+                blocked_times: blocked_times
             });
         }
     })();
