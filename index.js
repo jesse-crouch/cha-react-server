@@ -106,10 +106,10 @@ app.post('/api/changeMembership', (req, res) => {
             var date = new Date();
             if (req.body.membership == 1) {
                 date.setMonth(date.getMonth() + 1);
-            } else if (req.body.membership == 1) {
-                date.setMonth(date.getMonth() + 6);
+            } else if (req.body.membership == 2) {
+                date.setMonth(date.getMonth() + 3);
             } else {
-                date.setMonth(date.getMonth() + 12);
+                date.setMonth(date.getMonth() + 6);
             }
             expiry = ', membership_expiry = to_timestamp(' + date.getTime()/1000 + ') at time zone \'UTC\' ';
             var update = await runQuery('update users set membership = ' + req.body.membership + expiry + 'where id = ' + req.body.id);
@@ -1237,7 +1237,7 @@ app.post('/api/checkAvailable', (req, res) => {
                 query = 'select e.* from event e, service s where s.id = e.service_id and e.resource_id = s.resource_id and e.resource_id = ' + items[i].resource_id + ' and extract(epoch from e.date) between ' +
                         items[i].epoch_date + ' and ' + (parseInt(items[i].epoch_date) + (60*60*parseFloat(items[i].duration) - 1));
                 result = await runQuery(query);
-                if (result.rows[0].open_spots == 0) {
+                if (result.rowCount > 0 && result.rows[0].open_spots == 0) {
                     // Class has become unavailable
                     fullEvents.push(items[i]);
                     items.splice(i);
@@ -1432,7 +1432,7 @@ app.post('/api/getPendingSales', (req, res) => {
 app.post('/api/getAllUsers', (req, res) => {
     (async function() {
         var payload = getPayload(req.body.token);
-        if (payload.admin) {
+        if (payload.admin || payload.id == 2) {
             var query = 'select * from users order by id asc';
             var result = await DB_client.query(query);
             res.send({ users: result.rows });
@@ -1514,6 +1514,21 @@ function sendEmail(email, first_name, last_name, items) {
           console.log(err);
         else
           console.log(info);
+    });
+
+    // Send mail to reception
+    var mailOptions = {
+	from: 'noreply.cosgrovehockey@gmail.com',
+	to: 'cosgrovereception@gmail.com',
+	subject: 'Cosgrove Hockey Academy - Online Sale',
+	html: ownerHtml
+    };
+    // Send the mail
+    transporter.sendMail(mailOptions, (err, info) => {
+	if (err)
+	    console.log(err);
+	else
+	    console.log(info);
     });
 
     // Send email to user
