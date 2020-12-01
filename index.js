@@ -380,7 +380,9 @@ app.post('/api/blockTime', (req, res) => {
 
 app.post('/api/getCalendarInfo', (req, res) => {
     (async function() {
+        var findCounter = 0;
         async function findFirst(currentDate) {
+            findCounter++;
             var date = new Date(currentDate.getTime());
             date.setDate(date.getDate() - date.getDay());
             date.setHours(5,0,0,0);
@@ -391,10 +393,15 @@ app.post('/api/getCalendarInfo', (req, res) => {
             var result = await DB_client.query(query);
 
             if (result.rowCount > 0) {
+                findCounter = 0;
                 return { start: start, events: result.rows };
             } else {
-                date.setDate(date.getDate() + 7);
-                return findFirst(date);
+                if (findCounter > 10) {
+                    return null;
+                } else {
+                    date.setDate(date.getDate() + 7);
+                    return findFirst(date);
+                }
             }
         }
 
@@ -1165,7 +1172,7 @@ function generateToken(user) {
 app.post('/api/getClientSecret', (req, res) => {
     (async () => {
         const paymentIntent = await stripe.paymentIntents.create({
-            amount: parseInt((req.body.amount == 0 ? 1 : req.body.amount)*100),
+            amount: Math.ceil((req.body.amount == 0 ? 1 : req.body.amount)*100),
             currency: 'cad',
             // Verify your integration in this guide by including this parameter
             metadata: {integration_check: 'accept_a_payment'},
