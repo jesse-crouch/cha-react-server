@@ -97,6 +97,13 @@ app.post('/api/setMembershipExpiry', (req, res) => {
     });
 });
 
+app.post('/api/updateCovid', (req, res) => {
+    (async () => {
+        var result = runQuery('update sale set covid_screened = true where id = ' + req.body.id);
+        res.send({ error: null });
+    })();
+});
+
 app.post('/api/changeMembership', (req, res) => {
     (async () => {
         var membership = 'null';
@@ -219,7 +226,7 @@ app.post('/api/searchBookings', (req, res) => {
 app.get('/api/searchTodayBookings', (req, res) => {
     (async function() {
         var currentDate = new Date();
-        var query = 'select s.*, ss.id_chain, ss.duration, ss.name as service_name, extract(epoch from date) as epoch_date from sale s, service ss where ss.id = s.service_id and extract(day from date) = ' + currentDate.getDate() +
+        var query = 'select s.*, ss.id_chain, ss.duration, ss.name as service_name, extract(epoch from date) as epoch_date, s.covid_screened from sale s, service ss where ss.id = s.service_id and extract(day from date) = ' + currentDate.getDate() +
                     ' and extract(month from date) = ' + (currentDate.getUTCMonth() + 1) + ' and extract(year from date) = ' + currentDate.getFullYear() + ' order by date asc';
         console.log('QUERY: ' + query);
         var result = await DB_client.query(query);
