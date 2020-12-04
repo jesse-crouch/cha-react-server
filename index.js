@@ -504,7 +504,7 @@ app.post('/api/getEventManagerEvents', (req, res) => {
 	endDate.setHours(23,0,0,0);
         var query = 'select e.*, extract(epoch from date) as epoch_date, s.colour, s.type, s.duration as serviceDuration, s.price, concat(i.first_name, \' \', i.last_name) as instructor_name, s.type from event e, service s, instructor i where s.id = e.service_id and s.type = \'class\' and i.id = s.instructor and extract(epoch from date)*1000 between ' + req.body.date + ' and ' + endDate.getTime() + ' order by date asc';
         console.log('QUERY: ' + query);
-        var result = await DB_client.query(query);
+        var eventResult = await DB_client.query(query);
 
         var blocked_days = [], blocked_times = [];
         result = await runQuery('select * from blocked_event where extract(epoch from date)*1000 between ' + req.body.date + ' and ' + endDate.getTime() + ' order by date asc');
@@ -533,7 +533,7 @@ console.log(query);
         }*/
 
         res.send({
-            events: result.rows,
+            events: eventResult.rows,
             blocked_days: blocked_days,
             blocked_times: blocked_times
         });
@@ -1545,7 +1545,7 @@ function sendEmail(email, first_name, last_name, items) {
     });
 
     // Send email to owner
-    /*var mailOptions = {
+    var mailOptions = {
         from: 'noreply.cosgrovehockey@gmail.com',
         to: 'cosgrovehockeyacademy@gmail.com',
         subject: 'Cosgrove Hockey Academy - Online Sale',
@@ -1587,7 +1587,7 @@ function sendEmail(email, first_name, last_name, items) {
           return 'An error has occurred while sending an email.';
         else
           return true;
-    });*/
+    });
 }
 
 app.post('/api/verification', (req, res) => {
