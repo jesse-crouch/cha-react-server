@@ -9,7 +9,7 @@ const http = require('http');
 const fs = require('fs');
 const keys = require('./privateKeys');
 
-const local = true;
+const local = false;
 
 // Set your secret key. Remember to switch to your live secret key in production!
 // See your keys here: https://dashboard.stripe.com/account/apikeys
@@ -514,7 +514,7 @@ app.post('/api/getEventManagerEvents', (req, res) => {
         var eventResult = await DB_client.query(query);
 
         var blocked_days = [], blocked_times = [];
-        result = await runQuery('select * from blocked_event where extract(epoch from date)*1000 between ' + req.body.date + ' and ' + endDate.getTime() + ' order by date asc');
+        result = await runQuery('select *, extract(epoch from date) as epoch_date from blocked_event where extract(epoch from date)*1000 between ' + req.body.date + ' and ' + endDate.getTime() + ' order by date asc');
         for (var i in result.rows) {
             if (result.rows[i].duration == 100) {
                 blocked_days.push(result.rows[i]);
