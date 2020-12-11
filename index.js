@@ -9,7 +9,7 @@ const http = require('http');
 const fs = require('fs');
 const keys = require('./privateKeys');
 
-const local = false;
+const local = true;
 
 // Set your secret key. Remember to switch to your live secret key in production!
 // See your keys here: https://dashboard.stripe.com/account/apikeys
@@ -1179,7 +1179,7 @@ function generateToken(user) {
 app.post('/api/getClientSecret', (req, res) => {
     (async () => {
         const paymentIntent = await stripe.paymentIntents.create({
-            amount: parseInt((req.body.amount == 0 ? 1 : req.body.amount)*100),
+            amount: Math.ceil((req.body.amount == 0 ? 1 : req.body.amount)*100),
             currency: 'cad',
             // Verify your integration in this guide by including this parameter
             metadata: {integration_check: 'accept_a_payment'},
@@ -1339,6 +1339,7 @@ app.post('/api/sale', (req, res) => {
                 var added = false;
                 // If this item is an intro to hockey program, decrement the spots for all events in the recurrence
                 var introIDs = [40,42,77,78];
+                var christmasIDs = [80,81,82,83];
                 if (introIDs.includes(items[i].service_id)) {
                     result = await runQuery('select recurrence_id from event where id = ' + items[i].id);
                     update = await runQuery('update event set open_spots = (open_spots - 1) where recurrence_id = ' + result.rows[0].recurrence_id);
@@ -1351,6 +1352,20 @@ app.post('/api/sale', (req, res) => {
                             ' values(' + saleID + ',' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
                             req.body.phone + '\',\'' + req.body.child_first_name + '\',\'' + req.body.child_last_name + '\',' + items[i].service_id + ',' +
                             'to_timestamp(' + events.rows[j].epoch_date + ') at time zone \'UTC\',0,' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',33.9)');
+                        saleID += 1;
+                        added = true;
+                    }
+                } else if (christmasIDs.includes(items[i].service_id)) {
+                    // Get event list
+                    var events = await runQuery('select *, extract(epoch from date) as epoch_date from event where service_id = ' + items[i].service_id + ' order by date asc;');
+                    for (var j in events.rows) {
+                        var update = await runQuery('update event set open_spots = open_spots - 1 where id = ' + events.rows[j].id);
+
+                        // Add a sale for every event in the list, excluding the current one
+                        var newInsert = await runQuery('insert into sale(id, user_id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free, price)' +
+                            ' values(' + saleID + ',' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
+                            req.body.phone + '\',\'' + req.body.child_first_name + '\',\'' + req.body.child_last_name + '\',' + items[i].service_id + ',' +
+                            'to_timestamp(' + events.rows[j].epoch_date + ') at time zone \'UTC\',0,' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',' + (j == 0 ? '84.75' : '0') + ')');
                         saleID += 1;
                         added = true;
                     }
