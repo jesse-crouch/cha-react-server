@@ -1179,7 +1179,7 @@ function generateToken(user) {
 app.post('/api/getClientSecret', (req, res) => {
     (async () => {
         const paymentIntent = await stripe.paymentIntents.create({
-            amount: Math.ceil((req.body.amount == 0 ? 1 : req.body.amount)*100),
+            amount: parseInt((req.body.amount == 0 ? 1 : req.body.amount)*100),
             currency: 'cad',
             // Verify your integration in this guide by including this parameter
             metadata: {integration_check: 'accept_a_payment'},
