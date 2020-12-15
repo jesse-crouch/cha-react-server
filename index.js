@@ -1190,8 +1190,7 @@ app.post('/api/getClientSecret', (req, res) => {
 
 app.post('/api/checkMemberDiscount', (req, res) => {
     (async function() {
-        res.send({ error: null, applyDiscount: true });
-        /*
+        //res.send({ error: null, applyDiscount: true });
         var payload = jwt.verify(req.body.token, secret_key);
         
         // Check if user has a membership
@@ -1229,7 +1228,7 @@ app.post('/api/checkMemberDiscount', (req, res) => {
             }
         } else {
             res.send({ error: null, applyDiscount: false });
-        }*/
+        }
     })();
 });
 
