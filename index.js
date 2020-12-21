@@ -1295,8 +1295,12 @@ app.post('/api/sale', (req, res) => {
                 query = 'select resource_id from service where id = ' + items[i].service_id;
                 result = await DB_client.query(query);
 
+                var itemDate = new Date(0);
+                itemDate.setUTCSeconds(items[i].epoch_date);
+                if (itemDate.getFullYear < 2019) itemDate.setUTCSeconds(items[i].epoch_date*100);
+
                 query = 'insert into event(name, service_id, date, recurrence_id, open_spots, total_spots, duration, resource_id) values ' +
-                        '(\'' + items[i].name + '\', ' + items[i].service_id + ',to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\', null, ' + (items[i].total_spots - 1) + ', ' + items[i].total_spots + ', ' + items[i].duration + ',' + result.rows[0].resource_id + ')';
+                        '(\'' + items[i].name + '\', ' + items[i].service_id + ',to_timestamp(' + (itemDate.getTime()/1000) + ') at time zone \'UTC\', null, ' + (items[i].total_spots - 1) + ', ' + items[i].total_spots + ', ' + items[i].duration + ',' + result.rows[0].resource_id + ')';
                 console.log('QUERY: ' + query);
                 result = await DB_client.query(query);
 
@@ -1326,10 +1330,15 @@ app.post('/api/sale', (req, res) => {
                 // Add to sale
                 var price = (parseFloat(items[i].price.split('/')[0])*1.13).toFixed(2);
                 total += price;
+
+                var itemDate = new Date(0);
+                itemDate.setUTCSeconds(items[i].epoch_date);
+                if (itemDate.getFullYear < 2019) itemDate.setUTCSeconds(items[i].epoch_date*100);
+
                 query = 'insert into sale(id, user_id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free, price)' +
                         ' values(' + saleID + ',' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
                         req.body.phone + '\',\'' + req.body.child_first_name + '\',\'' + req.body.child_last_name + '\',' + items[i].service_id + ',' +
-                        'to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\',' + (req.body.amount_due == 0 ? 0 : price) + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',' + price + ')';
+                        'to_timestamp(' + (itemDate.getTime()/1000) + ') at time zone \'UTC\',' + (req.body.amount_due == 0 ? 0 : price) + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',' + price + ')';
                 console.log('QUERY: ' + query);
                 result = await DB_client.query(query);
                 sales.push(saleID);
@@ -1338,7 +1347,7 @@ app.post('/api/sale', (req, res) => {
                 var added = false;
                 // If this item is an intro to hockey program, decrement the spots for all events in the recurrence
                 var introIDs = [40,42,77,78];
-                var christmasIDs = [80,81,82,83];
+                var christmasIDs = [80,81,82,83,86,87,88];
                 if (introIDs.includes(items[i].service_id)) {
                     result = await runQuery('select recurrence_id from event where id = ' + items[i].id);
                     update = await runQuery('update event set open_spots = (open_spots - 1) where recurrence_id = ' + result.rows[0].recurrence_id);
@@ -1379,10 +1388,15 @@ app.post('/api/sale', (req, res) => {
                 if (!added) {
                     var price = (parseFloat(items[i].price.split('/')[0])*1.13).toFixed(2);
                     total += price;
+
+                    var itemDate = new Date(0);
+                    itemDate.setUTCSeconds(items[i].epoch_date);
+                    if (itemDate.getFullYear < 2019) itemDate.setUTCSeconds(items[i].epoch_date*100);
+
                     query = 'insert into sale(id, user_id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free, price)' +
                             ' values(' + saleID + ',' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
                             req.body.phone + '\',\'' + req.body.child_first_name + '\',\'' + req.body.child_last_name + '\',' + items[i].service_id + ',' +
-                            'to_timestamp(' + items[i].epoch_date + ') at time zone \'UTC\',' + (req.body.amount_due == 0 ? 0 : price) + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',' + price + ')';
+                            'to_timestamp(' + (itemDate.getTime()/1000) + ') at time zone \'UTC\',' + (req.body.amount_due == 0 ? 0 : price) + ',' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',' + price + ')';
                     console.log('QUERY: ' + query);
                     result = await DB_client.query(query);
                     sales.push(saleID);
