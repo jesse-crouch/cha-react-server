@@ -104,6 +104,29 @@ app.post('/api/updateCovid', (req, res) => {
     })();
 });
 
+app.post('/api/getSpecialID', (req, res) => {
+    (async () => {
+        // Fetch the most recent recurrence id for this service
+        var recurrResult = await runQuery('select max(id) as id from recurrence where service = ' + req.body.id);
+        if (recurrResult.rowCount > 0) {
+            // Fetch the first event that appears in this recurrence
+            var getEventID = await runQuery('select max(id) as id from event where recurrence_id = ' + recurrResult.rows[0].id);
+            if (getEventID.rowCount > 0) {
+                var getEvent = await runQuery('select e.*, s.duration, s.type, s.price, extract(epoch from date) as epoch_date from event e, service s where e.id = ' + getEventID.rows[0].id + ' and s.id = e.service_id');
+                if (getEvent.rowCount > 0) {
+                    res.send({ error: null, event: getEvent.rows[0] });
+                } else {
+                    res.send({ error: 'Event not found' });
+                }
+            } else {
+                res.send({ error: 'Event ID not found' });
+            }
+        } else {
+            res.send({ error: 'Recurrence not found' });
+        }
+    })();
+});
+
 app.post('/api/changeMembership', (req, res) => {
     (async () => {
         var membership = 'null';
@@ -1282,6 +1305,28 @@ async function isAvailable(item) {
     return result.rows[0].open_spots != 0;
 }
 
+app.post('/api/addToClass', (req, res) => {
+    (async () => {
+        // Check that the class is not yet full
+        var spotCheck = await runQuery('select * from event where id = ' + req.body.event_id);
+        if (spotCheck.rows[0].open_spots > 0) {
+            // Get the event price from the service table
+            var getPrice = await runQuery('select price from service where id = ' + req.body.service_id);
+            var price = (parseInt(getPrice.rows[0].price.split('/')[0])*1.13).toFixed(2);
+
+            // Update the open spots and add a sale
+            var updateEvent = await runQuery('update event set open_spots = open_spots - 1 where id = ' + req.body.event_id);
+
+            // Get maxID from sales
+            var getID = await runQuery('select max(id) as id from sale');
+            var insertSale = await runQuery('insert into sale(id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free, price)' + ' values(' + (getID.rows[0].id + 1) + ', \'' + req.body.firstName + '\',\'' + req.body.lastName + '\',\'' + req.body.email + '\',\'' + req.body.phone + '\',\'' + req.body.childFirstName + '\',\'' + req.body.childLastName + '\',' + req.body.service_id + ',' + 'to_timestamp(' + req.body.date + ') at time zone \'UTC\',' + req.body.amountDue + ',' + req.body.event_id + ', false,' + price + ')');
+            res.send({ error: null });
+        } else {
+            res.send({ error: 'This class is already full' });
+        }
+    })();
+});
+
 app.post('/api/sale', (req, res) => {
     (async function() {
         var items = JSON.parse(req.body.cart).items;
@@ -1345,8 +1390,38 @@ app.post('/api/sale', (req, res) => {
                 freeUsed = req.body.free;
             } else if (items[i].type == 'class') {
                 var added = false;
+
+                // Check if this is a special service
+                var specialCheck = await runQuery('select special,price from service where id = ' + items[i].service_id);
+                if (specialCheck.rows[0].special) {
+                    // Decrement the spots for all events in the recurrence
+                    var updateEvents = await runQuery('update event set open_spots = open_spots - 1 where recurrence_id = ' + items[i].recurrence_id);
+                    var getEvents = await runQuery('select *, extract(epoch from date) as epoch_date from event where recurrence_id = ' + items[i].recurrence_id);
+                    
+                    // Need to add a sale for each recurrence that way reception shows who is booked
+                    var price = '0.0';
+                    for (var j in getEvents.rows) {
+                        if (j == 0) {
+                            price = (parseInt(specialCheck.rows[0].price.split('/')[0])*1.13).toFixed(2);
+                        } else {
+                            price = '0.00';
+                        }
+                        var newInsert = await runQuery('insert into sale(id, user_id, first_name, last_name, email, phone, child_first_name, child_last_name, service_id, date, amount_due, event_id, free, price)' +
+                            ' values(' + saleID + ',' + req.body.user_id + ',\'' + req.body.first_name + '\',\'' + req.body.last_name + '\',\'' + req.body.email + '\',\'' +
+                            req.body.phone + '\',\'' + req.body.child_first_name + '\',\'' + req.body.child_last_name + '\',' + items[i].service_id + ',' +
+                            'to_timestamp(' + getEvents.rows[j].epoch_date + ') at time zone \'UTC\',0,' + items[i].id + ',' + (freeUsed ? false : (items[i].type == 'class' ? req.body.free : false)) + ',' + price + ')');
+                        saleID += 1;
+                        added = true;
+                    }
+                } else {
+                    // If the item is a class, decrement the open spots
+                    query = 'update event set open_spots = (open_spots - 1) where id = ' + items[i].id;
+                    console.log('QUERY: ' + query);
+                    result = await DB_client.query(query);
+                }
+
                 // If this item is an intro to hockey program, decrement the spots for all events in the recurrence
-                var introIDs = [40,42,77,78];
+                /*var introIDs = [40,42,77,78];
                 var christmasIDs = [80,81,82,83,86,87,88];
                 if (introIDs.includes(items[i].service_id)) {
                     result = await runQuery('select recurrence_id from event where id = ' + items[i].id);
@@ -1382,7 +1457,7 @@ app.post('/api/sale', (req, res) => {
                     query = 'update event set open_spots = (open_spots - 1) where id = ' + items[i].id;
                     console.log('QUERY: ' + query);
                     result = await DB_client.query(query);
-                }
+                }*/
 
                 // Add to sale
                 if (!added) {
