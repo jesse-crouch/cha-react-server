@@ -226,8 +226,9 @@ app.post('/api/searchBookings', (req, res) => {
                 if (i == 6) { query += ' and s.service_id = ' + filledFields[i]; }
                 if (i == 7) { query += ' and extract(day from date) = ' + filledFields[i]; }
                 if (i == 8) { query += ' and extract(month from date) = ' + filledFields[i]; }
-                if (i == 9) { query += ' and extract(hours from date) = ' + filledFields[i]; }
-                if (i == 10) { query += ' and extract(minutes from date) = ' + filledFields[i]; }
+                if (i == 9) { query += ' and extract(year from date) = ' + filledFields[i] }
+                if (i == 10) { query += ' and extract(hours from date) = ' + filledFields[i]; }
+                if (i == 11) { query += ' and extract(minutes from date) = ' + filledFields[i]; }
             }
         }
         query += ' order by date asc;';
@@ -630,7 +631,7 @@ app.post('/api/addEvent', (req, res) => {
                         date = new Date(req.body.date*1000);
                         date.setDate(date.getDate() - date.getDay());
                         date.setDate(date.getDate() + days[i]);
-                        for (var j=0; j<26; j++) {
+                        for (var j=0; j<(req.body.recurrLength*4); j++) {
                             //console.log(date);
                             query = 'select resource_id from service where id = ' + req.body.service;
                             result = await DB_client.query(query);
