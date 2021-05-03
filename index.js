@@ -97,6 +97,139 @@ app.post('/api/setMembershipExpiry', (req, res) => {
     });
 });
 
+function checkAdmin(token) {
+    if (token) {
+        var payload = getPayload(token);
+        return payload.admin;
+    } else {
+        return false;
+    }
+}
+
+app.post('/api/editService', (req, res) => {
+    (async () => {
+        if (checkAdmin(req.body.token)) {
+            var query = 'update service set name = \'' + req.body.name + '\', price = \'' + req.body.price + '\'' +
+                        ', description = \'{' + req.body.description + '}\', parent = ' + req.body.parent +
+                        ', resource_id = ' + req.body.resource + ', disabled = ' + req.body.disabled + ' where id = ' + req.body.id;
+            var update = await runQuery(query);
+            res.send({ error: null });
+        } else {
+            res.send({ error: 'Only administrators can perform this action' });
+        }
+    })().catch(err => {
+        setImmediate(() => {
+            console.log(err);
+            res.send({ error: 'Something went wrong, please try again' });
+        });
+    });
+});
+
+app.post('/api/addService', (req, res) => {
+    (async () => {
+        if (checkAdmin(req.body.token)) {            
+            var query = 'insert into service (name, price, description, resource_id, duration, type, membership, disabled, parent) values ' +
+                        '(\'' + req.body.name + '\', \'' + req.body.price + '\', \'{' + req.body.description + '}\', ' + req.body.resource +
+                        ', ' + req.body.duration + ', \'' + req.body.type + '\', ' + req.body.membership + ', ' + req.body.disabled + ', ' + req.body.parent + ')';
+            var add = await runQuery(query);
+            res.send({ error: null });
+        } else {
+            res.send({ error: 'Only administrators can perform this action' });
+        }
+    })().catch(err => {
+        setImmediate(() => {
+            console.log(err);
+            res.send({ error: 'Something went wrong, please try again' });
+        });
+    });
+});
+
+app.post('/api/getAllServicesInfo', (req, res) => {
+    (async () => {
+        if (checkAdmin(req.body.token)) {
+            var services = await runQuery('select * from service order by parent desc');
+            var resources = await runQuery('select * from resource order by id desc');
+            res.send({ error: null, services: services.rows, resources: resources.rows });
+        } else {
+            res.send({ error: 'Only administrators can access this information' });
+        }
+    })().catch(err => {
+        setImmediate(() => {
+            console.log(err);
+            res.send({ error: 'Something went wrong, please try again' });
+        });
+    });
+});
+
+app.post('/api/addResource', (req, res) => {
+    (async () => {
+        if (checkAdmin(req.body.token)) {
+            var newResource = await runQuery('insert into resource(name) values (\'' + req.body.name + '\')');
+            res.send({ error: null });
+        } else {
+            res.send({ error: 'Only administrators can perform this action' });
+        }
+    })().catch(err => {
+        setImmediate(() => {
+            console.log(err);
+            res.send({ error: 'Something went wrong, please try again' });
+        });
+    });
+});
+
+app.post('/api/deleteService', (req, res) => {
+    (async () => {
+        if (checkAdmin(req.body.token)) {
+            var newResource = await runQuery('delete from service where id = ' + req.body.id);
+            res.send({ error: null });
+        } else {
+            res.send({ error: 'Only administrators can perform this action' });
+        }
+    })().catch(err => {
+        setImmediate(() => {
+            console.log(err);
+            res.send({ error: 'Something went wrong, please try again' });
+        });
+    });
+});
+
+app.post('/api/deleteResource', (req, res) => {
+    (async () => {
+        if (checkAdmin(req.body.token)) {
+            var newResource = await runQuery('delete from resource where id = ' + req.body.id);
+            res.send({ error: null });
+        } else {
+            res.send({ error: 'Only administrators can perform this action' });
+        }
+    })().catch(err => {
+        setImmediate(() => {
+            console.log(err);
+            res.send({ error: 'Something went wrong, please try again' });
+        });
+    });
+});
+
+app.post('/api/getAllResources', (req, res) => {
+    (async () => {
+        if (req.body.token) {
+            var payload = getPayload(req.body.token);
+            if (payload.admin) {
+                var resources = await runQuery('select * from resource');
+                res.send({ error: null, resources: resources.rows });
+            } else {
+                res.send({ error: 'Only administrators can access this information' });
+            }
+        } else {
+            res.send({ error: 'Please log in to access this page' });
+        }
+    })().catch(err => {
+        setImmediate(() => {
+            console.log(err);
+            res.send({ error: 'Something went wrong, please try again' });
+        });
+    });
+});
+
 app.post('/api/updateCovid', (req, res) => {
     (async () => {
         var result = runQuery('update sale set covid_screened = true where id = ' + req.body.id);
