@@ -563,7 +563,6 @@ app.post('/api/getCalendarInfo', (req, res) => {
                 if (findCounter > 10) {
                     return null;
                 } else {
-                    date.setDate(date.getDate() + 7);
                     return findFirst(date);
                 }
             }
